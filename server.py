@@ -105,8 +105,8 @@ def _date_bounds_inclusive(start_iso: str, end_iso: str):
     end = datetime.date.fromisoformat(end_iso)
     if end < start:
         raise ValueError("end_date must be >= start_date")
-    lo = start.strftime("%Y%m%d") + "000000"
-    hi = (end + datetime.timedelta(days=1)).strftime("%Y%m%d") + "000000"
+    lo = start.strftime("%Y-%m-%d %H:%M:%S")
+    hi = (end + datetime.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     return lo, hi
 
 # ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ def get_account_balance(
         if as_of_date:
             bound = (
                 datetime.date.fromisoformat(as_of_date) + datetime.timedelta(days=1)
-            ).strftime("%Y%m%d%H%M%S")
+            ).strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         return _err(f"Invalid as_of_date {as_of_date!r}; expected YYYY-MM-DD")
 
@@ -328,7 +328,7 @@ def get_net_worth(as_of_date: str | None = None) -> str:
         if as_of_date:
             bound = (
                 datetime.date.fromisoformat(as_of_date) + datetime.timedelta(days=1)
-            ).strftime("%Y%m%d%H%M%S")
+            ).strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         return _err(f"Invalid as_of_date {as_of_date!r}; expected YYYY-MM-DD")
 
