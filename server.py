@@ -21,10 +21,14 @@ mcp = MCPServer("gnucash-readonly")
 # ---------------------------------------------------------------------------
 
 def _json_default(o):
-    # Decimal -> fixed-point string. This is the only place amounts become
-    # strings, and they stay exact: no float round-trip.
     if isinstance(o, Decimal):
-        return f"{o:.2f}"
+        # If it has fractional cents, keep up to 6 digits. Otherwise, 2.
+        s = f"{o:.6f}".rstrip('0')
+        if s.endswith('.'):
+            s += '00'
+        elif len(s.split('.')[1]) == 1:
+            s += '0'
+        return s
     raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
 
@@ -117,10 +121,14 @@ def _date_bounds_inclusive(start_iso: str, end_iso: str):
 def list_accounts() -> str:
     """List every non-hidden account in the GnuCash book.
 
-    Returns a JSON array of {guid, name, account_type, parent_guid,
-    commodity_guid, commodity_mnemonic}. `account_type` is one of
-    ASSET/LIABILITY/EQUITY/INCOME/EXPENSE/... Account names are not
-    guaranteed unique; the guid is authoritative.
+    Returns:
+        A JSON-encoded string. On success, the payload is:
+        `{"ok": true, "data": [{"guid": "...", "name": "...", "account_type": "ASSET", ...}, ...]}`
+        The array has the form {guid, name, account_type, parent_guid,
+        commodity_guid, commodity_mnemonic}. `account_type` is one of
+        ASSET/LIABILITY/EQUITY/INCOME/EXPENSE.
+
+        Account names are not guaranteed unique; the guid is authoritative.
     """
     rows = query(
         """
@@ -159,6 +167,12 @@ def get_account_balance(
     - LIABILITY and INCOME accounts are NEGATIVE.
     (e.g., a credit card with a $500 balance will return "-500.00").
     Use the `get_net_worth` tool for human-readable totals.
+
+    Returns:
+        A JSON-encoded string. On success, the payload is:
+        `{"ok": true, "data": {"account": "EQ Bank", "raw_ledger_balance": "-42.50", ...}}`
+
+        Note: The balance is returned as a decimal string to preserve exact precision.
     """
     acct, err = _resolve_account(account_name)
     if err is not None:
@@ -217,6 +231,12 @@ def get_recent_transactions(account_name: str, limit: int = 20) -> str:
 
     Each row: {post_date, description, memo, amount}. `amount` is the signed
     amount on this account's side of the split (decimal string, e.g. "-42.50").
+
+    Returns:
+        A JSON-encoded string. On success, the payload is:
+        `{"ok": true, "data": {"start": "2024-08-01", "end": "2024-08-31", "categories": [{"account": "Groceries", "total": "150.00"}, ...]}}`
+
+        `total` is a decimal string (positive = spending).
     """
     acct, err = _resolve_account(account_name)
     if err is not None:
@@ -286,6 +306,10 @@ def search_transactions(keyword: str, limit: int = 20) -> str:
         keyword: Substring to match against transactions.description or splits.memo.
         limit: Max rows to return (clamped to 1..200).
 
+    Returns:
+        A JSON-encoded string. On success, the payload is:
+        `{"ok": true, "data": {"keyword": "grocery", "matches": [{"post_date": "...", "description": "...", "account": "...", "amount": "-42.50"}, ...]}}`
+
     Each row is one split, so a single transaction appears once per account
     it touches: {post_date, description, memo, account, account_type, amount}.
     """
@@ -319,6 +343,11 @@ def get_net_worth(as_of_date: str | None = None) -> str:
 
     Args:
         as_of_date: ISO 'YYYY-MM-DD' (inclusive). Omit for "as of today".
+
+    Returns:
+        A JSON-encoded string. On success, the payload is:
+        `{"ok": true, "data": {"as_of": "today", "total_assets": "496838.74", "total_liabilities_owed": "222085.39", "net_worth": "274753.35"}}`
+
 
     Returns a summary including total_assets, total_liabilities, and net_worth.
     All amounts are positive decimal strings for easy reading.
@@ -378,6 +407,11 @@ def get_income_by_category(start_date: str, end_date: str) -> str:
     Returns one row per income account with a non-zero total:
     {account, account_type, total}. `total` is a positive decimal string
     (e.g. "1500.00").
+
+    Returns:
+        A JSON-encoded string. On success, the payload is:
+        `{"ok": true, "data": {"start": "2024-08-01", "end": "2024-08-31", "income_earned": [{"account": "Salary", "total": "5000.00"}, ...]}}`
+        `total` is a positive decimal string.
     """
     try:
         lo, hi = _date_bounds_inclusive(start_date, end_date)

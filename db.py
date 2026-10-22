@@ -38,23 +38,12 @@ STATEMENT_TIMEOUT_S = float(os.getenv("QUERY_TIMEOUT_S", "10"))
 # Assumes splits is aliased as `s` in the enclosing query.
 AMOUNT_EXPR = "CAST(s.value_num AS DECIMAL(20,6)) / NULLIF(s.value_denom, 0)"
 
-# GnuCash stores timestamps as DATETIME.
-# SQL side:  post_date is DATETIME column.
-# Python side:
-def parse_gnucash_date(s: str) -> datetime.datetime:
-    return datetime.datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
-
-
-def format_gnucash_date(d: datetime.datetime) -> str:
-    return d.strftime("%Y-%m-%d %H:%M:%S")
-
-
 def _jsonable(v: Any) -> Any:
     if isinstance(v, bytes):
         return v.decode("utf-8", errors="replace")
-    if isinstance(v, (datetime.datetime, datetime.date)):
+    if isinstance(v, (datetime.datetime, datetime.date, datetime.time)):
         return v.isoformat()
-    return v  # Decimal, int, str, None pass through unchanged
+    return v
 
 
 
