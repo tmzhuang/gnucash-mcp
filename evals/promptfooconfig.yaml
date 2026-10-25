@@ -1,0 +1,180 @@
+description: Compare agentic models for pi agent
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - id: openai:chat:agent-a1
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+  
+  # ── Thinking Disabled (The A/B Test) ──
+  - id: openai:chat:ling-nothink
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+
+  # ── Baselines (Thinking Enabled) ──
+  - id: openai:chat:bartowski/Ling-3.0-tiny-GGUF:Q4_K_M
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+  
+  - id: openai:chat:bartowski/Qwen2.5-Coder-3B-Instruct-GGUF:Q4_K_M
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+  
+  # ── Multimodal (Vision + Tools) ──
+  - id: openai:chat:bartowski/Qwen_Qwen3.5-4B-GGUF:Q5_K_M
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+  
+  - id: openai:chat:bartowski/Fara1.5-4B-GGUF:Q4_K_M
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+  
+  - id: openai:chat:batiai/Fara-7B-GGUF:Q4_K_M
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+
+  # ── New Agentic Contenders ──
+  - id: openai:chat:underdog-saluki
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+  
+  - id: openai:chat:gpt-oss
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+  
+  - id: openai:chat:mimo2.6
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+  
+  - id: openai:chat:qwen35-9b
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+  
+  - id: openai:chat:loco-operator
+    config: { apiBaseUrl: http://127.0.0.1:8080/v1, apiKey: local, temperature: 0 }
+
+defaultTest:
+  options:
+    extraBody: 
+      chat_template_kwargs:
+        add_generation_prompt: true
+
+tests:
+  # ── 1. Tool Routing: Read ──
+  - description: "Selects 'read' tool for actual project file"
+    vars:
+      prompt: "Read the file 'db.py' to review the database connection logic." # Changed from "What tool should you use?"
+    options:
+      tools:
+        - type: function
+          function:
+            name: read
+            description: Read a file
+            parameters:
+              type: object
+              properties:
+                path: { type: string }
+    assert:
+      - type: javascript
+        value: |
+          // Stringify the entire output (covers tool_calls AND raw content)
+          let text = JSON.stringify(output);
+          // Check if the model actually selected the read tool and got the path right
+          return text.includes('read') && text.includes('db.py');
+
+  # ── 2. Tool Routing: Edit ──
+  - description: "Selects 'edit' tool to modify server.py"
+    vars:
+      prompt: "In 'server.py', change the error message in _resolve_account from 'No account matching' to 'Account not found'."
+    options:
+      tools:
+        - type: function
+          function:
+            name: edit
+            description: Edit a file
+            parameters:
+              type: object
+              properties:
+                path: { type: string }
+                old_text: { type: string }
+                new_text: { type: string }
+    assert:
+      - type: javascript
+        value: |
+          let text = JSON.stringify(output);
+          return text.includes('edit') && 
+                 text.includes('server.py') && 
+                 text.includes('No account matching') && 
+                 text.includes('Account not found');
+
+  # ── 3. GnuCash MCP Test: Date Parsing ──
+  - description: "Selects GnuCash spending tool with correct ISO dates"
+    vars:
+      prompt: "How much did I spend in August 2024?"
+    options:
+      tools:
+        - type: function
+          function:
+            name: gnucash_get_spending_by_category
+            description: Aggregate EXPENSE-account spending over an inclusive date range.
+            parameters:
+              type: object
+              properties:
+                start_date: { type: string, description: "ISO 'YYYY-MM-DD' (inclusive)." }
+                end_date:   { type: string, description: "ISO 'YYYY-MM-DD' (inclusive)." }
+              required: ["start_date", "end_date"]
+    assert:
+      - type: javascript
+        value: |
+          let text = JSON.stringify(output);
+          return text.includes('gnucash_get_spending_by_category') && 
+                 text.includes('2024-08-01') && 
+                 text.includes('2024-08-31');
+
+  # ── 4. Loop Test: Strict Output Constraint ──
+  - description: "Formatting trap (should not loop)"
+    vars:
+      prompt: "List exactly 3 potential bugs in a Python script. Output them as a numbered list (1. 2. 3.). Do not include any introductory text, reasoning, or concluding text."
+    assert:
+      # 1. Increase latency to 45s to account for llama-swap cold starts
+      - type: latency
+        threshold: 45000 
+      # 2. Catch the specific "Thinking" rambling
+      - type: javascript
+        value: |
+          let text = typeof output === 'string' ? output : JSON.stringify(output || '');
+          
+          // Fail if it leaked its internal monologue (Ling's failure)
+          const badWords = ["Thinking:", "Analyze the Request", "Here are", "Sure,", "I need to"];
+          for (const word of badWords) {
+            if (text.includes(word)) return false;
+          }
+
+          // Fail if it's excessively long
+          if (text.length > 800) return false;
+          
+          // Ensure it actually produced the numbered list
+          return text.includes("1.") && text.includes("2.") && text.includes("3.");
+  # ── 5. Loop Test: The Impossible Tool Call ──
+  - description: "Tool failure trap (should ask for clarification, not loop)"
+    vars:
+      prompt: "I want to transfer money between accounts. Use the transfer tool."
+    options:
+      tools:
+        - type: function
+          function:
+            name: transfer_funds
+            description: Transfer money between two accounts.
+            parameters:
+              type: object
+              properties:
+                from_account: { type: string }
+                to_account: { type: string }
+                amount: { type: number }
+              required: ["from_account", "to_account", "amount"]
+    assert:
+      - type: latency
+        threshold: 15000
+      - type: javascript
+        value: |
+          const text = JSON.stringify(output);
+          // The model should either ask for the missing info, OR call the tool but leave fields empty/null.
+          // It should NOT repeat the same call 3+ times.
+          const callMatches = (text.match(/transfer_funds/g) || []).length;
+          if (callMatches > 3) return false; // Detecting the doom loop
+
+          // Make sure it doesn't hallucinate a massive block of text
+          if (text.length > 1500) return false;
+
+          return true;

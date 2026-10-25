@@ -1,0 +1,129 @@
+{%- macro tool_call_id_to_int(messages, tool_call_id) %}
+{%- set counter = namespace(value=0) %}
+{%- set tool_call_id_seen = namespace(value=false) %}
+{%- for msg in messages %}
+    {%- if msg.tool_calls %}
+        {%- for tool_call in msg.tool_calls %}
+            {%- if tool_call.id == tool_call_id and not tool_call_id_seen.value -%}
+                {{ counter.value }}
+                {%- set tool_call_id_seen.value = true %}
+            {%- endif %}
+            {%- set counter.value = counter.value + 1 %}
+        {%- endfor %}
+    {%- endif %}
+{%- endfor %}
+{%- endmacro %}
+
+{%- macro check_is_error_tool(tool_msg) -%}
+    {%- if tool_msg.is_error_tool -%}
+        True
+    {%- else -%}
+        False
+    {%- endif -%}
+{%- endmacro -%}
+
+{%- macro format_tool_message(messages, tool_msg) -%}
+{# format tool message #}
+    {
+        "tool_call_id": "{{ tool_msg.tool_call_id }}",
+        "results": {
+            "0": {{ tool_msg.content|tojson }}
+        },
+        "is_error_tool": {{ check_is_error_tool(tool_msg) }}
+    }
+{%- endmacro -%}
+
+{%- if messages and messages[0]['role']|lower == 'system' %}{%- set developer_preamble = messages[0]['content'] %}{% endif %}
+{%- set tool_idx = namespace(value=0) %}
+{%- set tool_ids_seen = namespace(value=[]) %}
+{{- "<|im_start|>system
+" -}}
+{% if tools %}
+You have been trained to have advanced reasoning and tool-use capabilities and you should make best use of these skills to serve user's requests.
+
+# Tool Use
+Think about how you can make best use of the provided tools to help with the task and come up with a high level plan that you will execute first.
+
+0. Start by writing <|start_thinking|> followed by a detailed step by step plan of how you will solve the problem. For each step explain your thinking fully and give details of required tool calls (if needed). Unless specified otherwise, you write your plan in natural language. When you finish, close it out with <|end_thinking|>.
+    You can optionally choose to skip this step when the user request is so straightforward to address that only a trivial plan would be needed.
+    NOTE: You MUST skip this step when you are directly responding to the user's request without using any tools.
+
+Then carry out your plan by repeatedly executing the following steps.
+1. Action: write <tool_call> followed by a list of JSON-formatted tool calls, with each one containing "tool_name" and "parameters" fields.
+    When there are multiple tool calls which are completely independent of each other (i.e. they can be executed in parallel), you should list them out all together in one step. When you finish, close it out with </tool_call>.
+2. Observation: you will then receive results of those tool calls in JSON format in the very next turn, wrapped around by <tool_response> and </tool_response>. Carefully observe those results and think about what to do next. Note that these results will be provided to you in a separate turn. NEVER hallucinate results.
+    Every tool call produces a list of results (when a tool call produces no result or a single result, it'll still get wrapped inside a list). Each result is clearly linked to its originating tool call via its "tool_call_id".
+3. Reflection: start the next turn by writing <|start_thinking|> followed by what you've figured out so far, any changes you need to make to your plan, and what you will do next. When you finish, close it out with <|end_thinking|>.
+    You can optionally choose to skip this step when everything is going according to plan and no special pieces of information or reasoning chains need to be recorded.
+    NOTE: You MUST skip this step when you are done with tool-use actions and are ready to respond to the user.
+
+You can repeat the above 3 steps multiple times (could be 0 times too if no suitable tool calls are available or needed), until you decide it's time to finally respond to the user.
+
+4. Response: then break out of the loop and write <|start_response|> followed by a piece of text which serves as a response to the user's last request. Use all previous tool calls and results to help you when formulating your response. When you finish, close it out with <|end_response|>.
+
+# Available Tools
+Here is the list of tools that you have available to you.
+You can ONLY use the tools listed here. When a tool is not listed below, it is NOT available and you should NEVER attempt to use it.
+Each tool is represented as a JSON object with fields like "name", "description", "parameters" (per JSON Schema), and optionally, "responses" (per JSON Schema).
+
+```json
+[
+{% for tool in tools %}
+    {"name": "{{ tool['function']['name'] }}", "description": "{{tool['function']['description']}}", "parameters": {{ tool['function']['parameters']|tojson }}, "responses": null}{%- if not loop.last %},{% endif %}
+
+{% endfor %}
+]
+```
+
+{% endif %}
+{%- if developer_preamble %}
+{{ developer_preamble }}
+{%- endif -%}
+{{- "<|im_end|>" -}}
+{%- for message in messages %}
+    {%- if message.role|lower == 'system' and not (loop.first and developer_preamble)%}
+{{- "
+<|im_start|>system
+" -}}
+{{- message.content + "<|im_end|>" -}}
+    {%- elif message.role|lower == 'user' -%}
+{{- "
+<|im_start|>user
+" -}}
+{{- message.content + "<|im_end|>" -}}
+    {%- elif message.role|lower == 'assistant' %}
+{{- "
+<|im_start|>assistant
+" -}}
+{% if message.tool_calls %}<|start_thinking|>{{message.tool_plan}}<|end_thinking|><tool_call>[
+    {% for tc in message.tool_calls %}
+    {"tool_call_id": "{{ tc.id }}", "tool_name": "{{ tc['function']['name'] }}", "parameters": {{ tc['function']['arguments']|tojson }}}{% if not loop.last %},{% endif %}
+
+    {% set tool_idx.value = tool_idx.value + 1 %}
+    {% endfor %}
+]</tool_call>{{- "<|im_end|>" -}}
+{%- else -%}<|start_response|>{{message.content}}<|end_response|>{{- "<|im_end|>" -}}
+{% endif %}
+    {% elif message.role|lower == 'tool' and message.tool_call_id not in tool_ids_seen.value %}
+{{- "
+<|im_start|>system
+<tool_response>[
+" -}}
+{{ format_tool_message(messages, message) }}
+    {%- for msg in messages[loop.index0 + 1:] %}
+        {%- if msg.role|lower == 'tool' %},
+{{ format_tool_message(messages, msg) }}
+            {%- set tool_ids_seen.value = tool_ids_seen.value + [msg.tool_call_id] %}
+        {%- else %}
+            {%- break %}
+        {%- endif %}
+    {%- endfor %}
+{{- "
+]</tool_response><|im_end|>" -}}
+    {%- endif -%}
+{%- endfor -%}
+{%- if add_generation_prompt -%}
+    {{- "
+<|im_start|>assistant
+" -}}
+{%- endif -%}

@@ -1,0 +1,48 @@
+# Docker Compose for local development with MariaDB
+# This provides a test database for development
+
+version: '3.8'
+
+services:
+  # MariaDB test database
+  mariadb:
+    image: mariadb:10.6
+    container_name: gnucash-mcp-test-db
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root_password
+      MYSQL_DATABASE: gnucash_test
+      MYSQL_USER: gnucash_test
+      MYSQL_PASSWORD: test_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # GnuCash data initialization (optional)
+  # Uncomment and modify for your specific needs
+  # gnucash-init:
+  #   image: your-gnucash-export-image
+  #   depends_on:
+  #     - mariadb
+  #   environment:
+  #     - DB_HOST=mariadb
+  #     - DB_USER=gnucash_test
+  #     - DB_PASSWORD=test_password
+  #     - DB_NAME=gnucash_test
+  #   volumes:
+  #     - ./gnucash-data:/data
+
+volumes:
+  mariadb_data:
+    driver: local
+
+# Usage:
+#   docker-compose up -d          # Start services
+#   docker-compose down           # Stop and remove services
+#   docker-compose logs mariadb   # View logs
