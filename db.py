@@ -3,7 +3,6 @@ MariaDB access layer for the GnuCash read-only MCP server.
 
 Conventions baked into this module (so tools don't repeat them):
   * splits is always aliased as `s`; use AMOUNT_EXPR for money.
-  * GnuCash timestamps are CHAR(14) 'YYYYMMDDHHMMSS' — use the helpers below.
   * Every session is forced READ ONLY with a statement timeout before any query.
 """
 

@@ -125,9 +125,9 @@ Configure your local LLM client to use the stdio transport and point it to the s
 ## Implementation Notes
 
 **Handling GnuCash Data Formats:**
-GnuCash stores currency amounts as integer pairs (`value_num` / `value_denom`). The SQL queries divide these using `CAST(value_num AS DECIMAL) / value_denom` to avoid floating-point inaccuracies. 
+GnuCash stores currency amounts as integer pairs (`value_num` / `value_denom`). The SQL queries divide these using `CAST(value_num AS DECIMAL) / value_denom` to avoid floating-point inaccuracies.
 
-Dates in GnuCash are stored as `DATETIME` (or `CHAR(14)` depending on the schema version). The Python helpers convert standard ISO dates (`YYYY-MM-DD`) into the appropriate query bounds.
+Dates in GnuCash are stored as `DATETIME` values. The Python helpers convert standard ISO dates (`YYYY-MM-DD`) into the appropriate query bounds.
 
 **Double-Entry Accounting & LLMs:**
 GnuCash stores liabilities and income as negative numbers. Small local models often get confused by this when calculating net worth. To fix this, the server splits tools into two categories:

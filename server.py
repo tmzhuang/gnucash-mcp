@@ -104,7 +104,7 @@ def _resolve_account(name: str):
 
 
 def _date_bounds_inclusive(start_iso: str, end_iso: str):
-    """ISO date range -> half-open [start, end+1d) GnuCash CHAR(14) strings."""
+    """ISO date range -> half-open [start, end+1d) datetime strings."""
     start = datetime.date.fromisoformat(start_iso)
     end = datetime.date.fromisoformat(end_iso)
     if end < start:
