@@ -30,7 +30,7 @@ lint:
 
 # Run unit tests
 test:
-	pytest tests/ -v
+	PYTHONPATH=. pytest tests/ -v
 
 # Run smoke test
 smoke:
