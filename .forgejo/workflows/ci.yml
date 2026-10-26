@@ -58,7 +58,7 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          uv pip sync requirements.txt
+          uv pip sync --system requirements.txt
 
       - name: Run tests
         run: |
