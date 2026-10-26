@@ -9,7 +9,6 @@ Conventions baked into this module (so tools don't repeat them):
 import datetime
 import os
 from contextlib import contextmanager
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 

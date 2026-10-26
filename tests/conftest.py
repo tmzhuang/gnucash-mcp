@@ -1,7 +1,7 @@
 """Configuration for pytest tests."""
 
-import sys
 import os
+import sys
 
 # Add project root to PYTHONPATH so tests can import db, guard, server
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
