@@ -62,6 +62,6 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/ -v
+          uv run pytest tests/ -v
 
 
