@@ -24,3 +24,4 @@ ruff_cache/
 .editorconfig
 flake8.log
 *.log
+.pre-commit_cache/

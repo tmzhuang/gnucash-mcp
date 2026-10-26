@@ -118,21 +118,45 @@ class TestResolveAccount:
 
     def test_exact_match(self):
         # Mock query returns one exact match
-        mock_result = [{"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:EQ Bank"}]
+        mock_result = [
+            {
+                "guid": "g1",
+                "name": "EQ Bank",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "path": "Assets:EQ Bank",
+            }
+        ]
         with patch("server.query", return_value=mock_result):
             account, error = _resolve_account("EQ Bank")
             assert error is None
             assert account["name"] == "EQ Bank"
 
     def test_exact_match_with_prefix(self):
-        mock_result = [{"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:Current:EQ Bank"}]
+        mock_result = [
+            {
+                "guid": "g1",
+                "name": "EQ Bank",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "path": "Assets:Current:EQ Bank",
+            }
+        ]
         with patch("server.query", return_value=mock_result):
             account, error = _resolve_account("Root Account:EQ Bank")
             assert error is None
             assert account["name"] == "EQ Bank"
 
     def test_suffix_match(self):
-        mock_result = [{"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:Current Assets:EQ Bank"}]
+        mock_result = [
+            {
+                "guid": "g1",
+                "name": "EQ Bank",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "path": "Assets:Current Assets:EQ Bank",
+            }
+        ]
         with patch("server.query", return_value=mock_result):
             account, error = _resolve_account("Assets:Current Assets:EQ Bank")
             assert error is None
@@ -146,8 +170,20 @@ class TestResolveAccount:
 
     def test_multiple_matches_returns_error(self):
         mock_result = [
-            {"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:EQ Bank"},
-            {"guid": "g2", "name": "EQ Bank", "account_type": "LIABILITY", "parent_guid": None, "path": "Liabilities:EQ Bank"},
+            {
+                "guid": "g1",
+                "name": "EQ Bank",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "path": "Assets:EQ Bank",
+            },
+            {
+                "guid": "g2",
+                "name": "EQ Bank",
+                "account_type": "LIABILITY",
+                "parent_guid": None,
+                "path": "Liabilities:EQ Bank",
+            },
         ]
         with patch("server.query", return_value=mock_result):
             account, error = _resolve_account("EQ Bank")
@@ -158,7 +194,13 @@ class TestResolveAccount:
     def test_exact_name_takes_precedence(self):
         # When exact match exists, it returns that account
         mock_result = [
-            {"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:EQ Bank"},
+            {
+                "guid": "g1",
+                "name": "EQ Bank",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "path": "Assets:EQ Bank",
+            },
         ]
         with patch("server.query", return_value=mock_result):
             account, error = _resolve_account("EQ Bank")
@@ -166,7 +208,15 @@ class TestResolveAccount:
             assert account["name"] == "EQ Bank"
 
     def test_full_path_exact(self):
-        mock_result = [{"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:Current Assets:EQ Bank"}]
+        mock_result = [
+            {
+                "guid": "g1",
+                "name": "EQ Bank",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "path": "Assets:Current Assets:EQ Bank",
+            }
+        ]
         with patch("server.query", return_value=mock_result):
             account, error = _resolve_account("Assets:Current Assets:EQ Bank")
             assert error is None
@@ -178,8 +228,22 @@ class TestListAccounts:
 
     def test_returns_accounts(self):
         mock_result = [
-            {"guid": "g1", "name": "Cash", "account_type": "ASSET", "parent_guid": None, "commodity_guid": "c1", "commodity_mnemonic": "USD"},
-            {"guid": "g2", "name": "Credit Card", "account_type": "LIABILITY", "parent_guid": None, "commodity_guid": "c1", "commodity_mnemonic": "USD"},
+            {
+                "guid": "g1",
+                "name": "Cash",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "commodity_guid": "c1",
+                "commodity_mnemonic": "USD",
+            },
+            {
+                "guid": "g2",
+                "name": "Credit Card",
+                "account_type": "LIABILITY",
+                "parent_guid": None,
+                "commodity_guid": "c1",
+                "commodity_mnemonic": "USD",
+            },
         ]
         with patch("server.query", return_value=mock_result):
             result = list_accounts()
@@ -198,7 +262,14 @@ class TestListAccounts:
 
     def test_no_commodities(self):
         mock_result = [
-            {"guid": "g1", "name": "Cash", "account_type": "ASSET", "parent_guid": None, "commodity_guid": None, "commodity_mnemonic": None},
+            {
+                "guid": "g1",
+                "name": "Cash",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "commodity_guid": None,
+                "commodity_mnemonic": None,
+            },
         ]
         with patch("server.query", return_value=mock_result):
             result = list_accounts()
@@ -218,7 +289,15 @@ class TestGetAccountBalance:
             call_count[0] += 1
             # First call: account resolution (no 'tree' in SQL)
             if call_count[0] == 1:
-                return [{"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:EQ Bank"}]
+                return [
+                    {
+                        "guid": "g1",
+                        "name": "EQ Bank",
+                        "account_type": "ASSET",
+                        "parent_guid": None,
+                        "path": "Assets:EQ Bank",
+                    }
+                ]
             # Second call: balance query (has 'tree' in SQL)
             return [{"balance": "100.00"}]
 
@@ -236,7 +315,15 @@ class TestGetAccountBalance:
         def mock_query(sql, params):
             call_count[0] += 1
             if call_count[0] == 1:
-                return [{"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:EQ Bank"}]
+                return [
+                    {
+                        "guid": "g1",
+                        "name": "EQ Bank",
+                        "account_type": "ASSET",
+                        "parent_guid": None,
+                        "path": "Assets:EQ Bank",
+                    }
+                ]
             return [{"balance": "50.00"}]
 
         with patch("server.query", side_effect=mock_query):
@@ -250,7 +337,15 @@ class TestGetAccountBalance:
         def mock_query(sql, params):
             call_count[0] += 1
             if call_count[0] == 1:
-                return [{"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:EQ Bank"}]
+                return [
+                    {
+                        "guid": "g1",
+                        "name": "EQ Bank",
+                        "account_type": "ASSET",
+                        "parent_guid": None,
+                        "path": "Assets:EQ Bank",
+                    }
+                ]
             return [{"balance": "200.00"}]
 
         with patch("server.query", side_effect=mock_query):
@@ -264,7 +359,15 @@ class TestGetAccountBalance:
         def mock_query(sql, params):
             call_count[0] += 1
             if call_count[0] == 1:
-                return [{"guid": "g1", "name": "Credit Card", "account_type": "LIABILITY", "parent_guid": None, "path": "Liabilities:Credit Card"}]
+                return [
+                    {
+                        "guid": "g1",
+                        "name": "Credit Card",
+                        "account_type": "LIABILITY",
+                        "parent_guid": None,
+                        "path": "Liabilities:Credit Card",
+                    }
+                ]
             return [{"balance": "-500.00"}]
 
         with patch("server.query", side_effect=mock_query):
@@ -298,8 +401,20 @@ class TestGetAccountBalance:
             # The CTE query returns multiple rows when there are multiple matches
             if "WHERE name =" in sql:
                 return [
-                    {"guid": "g1", "name": "EQ Bank", "account_type": "ASSET", "parent_guid": None, "path": "Assets:EQ Bank"},
-                    {"guid": "g2", "name": "EQ Bank", "account_type": "LIABILITY", "parent_guid": None, "path": "Liabilities:EQ Bank"},
+                    {
+                        "guid": "g1",
+                        "name": "EQ Bank",
+                        "account_type": "ASSET",
+                        "parent_guid": None,
+                        "path": "Assets:EQ Bank",
+                    },
+                    {
+                        "guid": "g2",
+                        "name": "EQ Bank",
+                        "account_type": "LIABILITY",
+                        "parent_guid": None,
+                        "path": "Liabilities:EQ Bank",
+                    },
                 ]
             return []
 
@@ -318,8 +433,18 @@ class TestGetRecentTransactions:
     def test_returns_transactions(self):
         mock_account = {"guid": "g1", "name": "Food", "account_type": "ASSET"}
         mock_transactions = [
-            {"post_date": "2024-01-15", "description": "Grocery Store", "memo": "Weekly shopping", "amount": "-45.00"},
-            {"post_date": "2024-01-14", "description": "Coffee", "memo": "Downtown", "amount": "-5.50"},
+            {
+                "post_date": "2024-01-15",
+                "description": "Grocery Store",
+                "memo": "Weekly shopping",
+                "amount": "-45.00",
+            },
+            {
+                "post_date": "2024-01-14",
+                "description": "Coffee",
+                "memo": "Downtown",
+                "amount": "-5.50",
+            },
         ]
 
         def mock_query(sql, params):
@@ -336,7 +461,14 @@ class TestGetRecentTransactions:
 
     def test_limit_clamped_to_200(self):
         mock_account = {"guid": "g1", "name": "Test", "account_type": "ASSET"}
-        mock_transactions = [{"post_date": "2024-01-15", "description": "Test", "memo": "", "amount": "0.00"}] * 300
+        mock_transactions = [
+            {
+                "post_date": "2024-01-15",
+                "description": "Test",
+                "memo": "",
+                "amount": "0.00",
+            }
+        ] * 300
 
         def mock_query(sql, params):
             if "account_guid" in sql.lower():
@@ -351,7 +483,14 @@ class TestGetRecentTransactions:
 
     def test_min_limit(self):
         mock_account = {"guid": "g1", "name": "Test", "account_type": "ASSET"}
-        mock_transactions = [{"post_date": "2024-01-15", "description": "Test", "memo": "", "amount": "0.00"}]
+        mock_transactions = [
+            {
+                "post_date": "2024-01-15",
+                "description": "Test",
+                "memo": "",
+                "amount": "0.00",
+            }
+        ]
 
         def mock_query(sql, params):
             if "account_guid" in sql.lower():
@@ -410,6 +549,7 @@ class TestGetNetWorth:
 
     def test_returns_net_worth(self):
         from decimal import Decimal
+
         mock_result = [
             {"account_type": "ASSET", "balance": Decimal("50000.00")},
             {"account_type": "LIABILITY", "balance": Decimal("-20000.00")},
@@ -433,6 +573,7 @@ class TestGetNetWorth:
 
     def test_with_as_of_date(self):
         from decimal import Decimal
+
         mock_result = [
             {"account_type": "ASSET", "balance": Decimal("100.00")},
             {"account_type": "LIABILITY", "balance": Decimal("-40.00")},
@@ -448,8 +589,22 @@ class TestSearchTransactions:
 
     def test_returns_matches(self):
         mock_result = [
-            {"post_date": "2024-01-15", "description": "Grocery Store", "memo": "Milk and eggs", "account": "Groceries", "account_type": "EXPENSE", "amount": "-45.00"},
-            {"post_date": "2024-01-14", "description": "Dinner", "memo": "Coffee at Starbucks", "account": "Restaurants", "account_type": "EXPENSE", "amount": "-8.50"},
+            {
+                "post_date": "2024-01-15",
+                "description": "Grocery Store",
+                "memo": "Milk and eggs",
+                "account": "Groceries",
+                "account_type": "EXPENSE",
+                "amount": "-45.00",
+            },
+            {
+                "post_date": "2024-01-14",
+                "description": "Dinner",
+                "memo": "Coffee at Starbucks",
+                "account": "Restaurants",
+                "account_type": "EXPENSE",
+                "amount": "-8.50",
+            },
         ]
         with patch("server.query", return_value=mock_result):
             result = search_transactions("coffee", limit=5)
@@ -461,7 +616,14 @@ class TestSearchTransactions:
 
     def test_case_insensitive(self):
         mock_result = [
-            {"post_date": "2024-01-15", "description": "GROCERY STORE", "memo": "MILK", "account": "Groceries", "account_type": "EXPENSE", "amount": "-50.00"},
+            {
+                "post_date": "2024-01-15",
+                "description": "GROCERY STORE",
+                "memo": "MILK",
+                "account": "Groceries",
+                "account_type": "EXPENSE",
+                "amount": "-50.00",
+            },
         ]
         with patch("server.query", return_value=mock_result):
             result = search_transactions("grocery")
@@ -471,7 +633,14 @@ class TestSearchTransactions:
 
     def test_matches_memo(self):
         mock_result = [
-            {"post_date": "2024-01-15", "description": "Transfer", "memo": "Grocery payment", "account": "EQ Bank", "account_type": "ASSET", "amount": "-50.00"},
+            {
+                "post_date": "2024-01-15",
+                "description": "Transfer",
+                "memo": "Grocery payment",
+                "account": "EQ Bank",
+                "account_type": "ASSET",
+                "amount": "-50.00",
+            },
         ]
         with patch("server.query", return_value=mock_result):
             result = search_transactions("grocery")
@@ -480,7 +649,16 @@ class TestSearchTransactions:
             assert len(parsed["data"]["matches"]) == 1
 
     def test_limit_clamped(self):
-        mock_result = [{"post_date": "2024-01-15", "description": "Test", "memo": "", "account": "Test", "account_type": "EXPENSE", "amount": "0.00"}] * 300
+        mock_result = [
+            {
+                "post_date": "2024-01-15",
+                "description": "Test",
+                "memo": "",
+                "account": "Test",
+                "account_type": "EXPENSE",
+                "amount": "0.00",
+            }
+        ] * 300
         with patch("server.query", return_value=mock_result):
             result = search_transactions("test", limit=300)
             parsed = _parse_response(result)
@@ -509,7 +687,9 @@ class TestGetIncomeByCategory:
             assert len(parsed["data"]["income_earned"]) == 2
 
     def test_income_is_positive(self):
-        mock_result = [{"account": "Salary", "account_type": "INCOME", "total": "5000.00"}]
+        mock_result = [
+            {"account": "Salary", "account_type": "INCOME", "total": "5000.00"}
+        ]
         with patch("server.query", return_value=mock_result):
             result = get_income_by_category("2024-01-01", "2024-01-31")
             parsed = _parse_response(result)

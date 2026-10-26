@@ -20,14 +20,15 @@ mcp = MCPServer("gnucash-readonly")
 # Response envelope + JSON helpers
 # ---------------------------------------------------------------------------
 
+
 def _json_default(o):
     if isinstance(o, Decimal):
         # If it has fractional cents, keep up to 6 digits. Otherwise, 2.
-        s = f"{o:.6f}".rstrip('0')
-        if s.endswith('.'):
-            s += '00'
-        elif len(s.split('.')[1]) == 1:
-            s += '0'
+        s = f"{o:.6f}".rstrip("0")
+        if s.endswith("."):
+            s += "00"
+        elif len(s.split(".")[1]) == 1:
+            s += "0"
         return s
     raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
@@ -46,6 +47,7 @@ def _err(msg, **extra):
 # Account-name resolution
 # ---------------------------------------------------------------------------
 
+
 def _resolve_account(name: str):
     """Resolve a user-supplied account identifier to exactly one account.
 
@@ -57,7 +59,7 @@ def _resolve_account(name: str):
     """
     cleaned = name.strip()
     if cleaned.lower().startswith("root account:"):
-        cleaned = cleaned[len("root account:"):].strip()
+        cleaned = cleaned[len("root account:") :].strip()
 
     base_sql = """
     WITH RECURSIVE tree AS (
@@ -80,8 +82,7 @@ def _resolve_account(name: str):
     if ":" in cleaned:
         # Exact path OR any path ending with ':<input>'.
         rows = query(
-            base_sql
-            + " WHERE path = %s OR path LIKE CONCAT('%:', %s) ORDER BY path",
+            base_sql + " WHERE path = %s OR path LIKE CONCAT('%:', %s) ORDER BY path",
             (cleaned, cleaned),
         )
     else:
@@ -90,7 +91,9 @@ def _resolve_account(name: str):
 
         # 2. If no exact match, fall back to substring match.
         if not rows:
-            rows = query(base_sql + " WHERE name LIKE %s ORDER BY path", (f"%{cleaned}%",))
+            rows = query(
+                base_sql + " WHERE name LIKE %s ORDER BY path", (f"%{cleaned}%",)
+            )
 
     if not rows:
         return None, _err(f"No account matching {name!r}")
@@ -113,9 +116,11 @@ def _date_bounds_inclusive(start_iso: str, end_iso: str):
     hi = (end + datetime.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     return lo, hi
 
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 def list_accounts() -> str:
@@ -212,13 +217,15 @@ def get_account_balance(
         params = (acct["guid"], bound) if bound else (acct["guid"],)
 
     rows = query(sql, params)
-    return _ok({
-        "account": acct["name"],
-        "account_type": acct["account_type"],
-        "raw_ledger_balance": rows[0]["balance"],
-        "as_of": as_of_date or "today",
-        "include_children": include_children
-    })
+    return _ok(
+        {
+            "account": acct["name"],
+            "account_type": acct["account_type"],
+            "raw_ledger_balance": rows[0]["balance"],
+            "as_of": as_of_date or "today",
+            "include_children": include_children,
+        }
+    )
 
 
 @mcp.tool()
@@ -387,13 +394,15 @@ def get_net_worth(as_of_date: str | None = None) -> str:
 
     net_worth = total_assets - total_liabilities
 
-    return _ok({
-        "as_of": as_of_date or "today",
-        "total_assets": total_assets,
-        "total_liabilities_owed": total_liabilities,
-        "net_worth": net_worth,
-        "note": "In GnuCash, liabilities are stored as negative numbers. This tool returns the absolute value of what you owe."
-    })
+    return _ok(
+        {
+            "as_of": as_of_date or "today",
+            "total_assets": total_assets,
+            "total_liabilities_owed": total_liabilities,
+            "net_worth": net_worth,
+            "note": "In GnuCash, liabilities are stored as negative numbers. This tool returns the absolute value of what you owe.",
+        }
+    )
 
 
 @mcp.tool()
@@ -436,12 +445,14 @@ def get_income_by_category(start_date: str, end_date: str) -> str:
         """,
         (lo, hi),
     )
-    return _ok({
-        "start": start_date,
-        "end": end_date,
-        "income_earned": rows,
-        "note": "In GnuCash, income is stored as negative numbers. This tool returns positive absolute values for readability."
-    })
+    return _ok(
+        {
+            "start": start_date,
+            "end": end_date,
+            "income_earned": rows,
+            "note": "In GnuCash, income is stored as negative numbers. This tool returns positive absolute values for readability.",
+        }
+    )
 
 
 if __name__ == "__main__":

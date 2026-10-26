@@ -174,7 +174,9 @@ class TestCheck:
         assert check(sql) == sql
 
     def test_valid_with_join(self):
-        sql = "SELECT a.*, b.* FROM accounts a JOIN transactions b ON a.id = b.account_id"
+        sql = (
+            "SELECT a.*, b.* FROM accounts a JOIN transactions b ON a.id = b.account_id"
+        )
         assert check(sql) == sql
 
     def test_valid_with_union(self):

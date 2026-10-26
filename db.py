@@ -36,13 +36,13 @@ STATEMENT_TIMEOUT_S = float(os.getenv("QUERY_TIMEOUT_S", "10"))
 # Assumes splits is aliased as `s` in the enclosing query.
 AMOUNT_EXPR = "CAST(s.value_num AS DECIMAL(20,6)) / NULLIF(s.value_denom, 0)"
 
+
 def _jsonable(v: Any) -> Any:
     if isinstance(v, bytes):
         return v.decode("utf-8", errors="replace")
-    if isinstance(v, (datetime.datetime, datetime.date, datetime.time)):
+    if isinstance(v, datetime.datetime | datetime.date | datetime.time):
         return v.isoformat()
     return v
-
 
 
 @contextmanager
@@ -55,7 +55,9 @@ def _connection():
             cur.execute("SET SESSION TRANSACTION READ ONLY")
             # Layer 3: cap runtime. Cast to float before interpolation so a
             # malicious .env cannot inject anything.
-            cur.execute(f"SET SESSION max_statement_time = {float(STATEMENT_TIMEOUT_S)}")
+            cur.execute(
+                f"SET SESSION max_statement_time = {float(STATEMENT_TIMEOUT_S)}"
+            )
         finally:
             cur.close()
         yield conn

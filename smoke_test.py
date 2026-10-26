@@ -23,14 +23,19 @@ def main() -> int:
     account = sys.argv[1] if len(sys.argv) > 1 else "Checking"
 
     _show("list_accounts", server.list_accounts())
-    _show(f"get_account_balance({account!r})",
-          server.get_account_balance(account))
-    _show(f"get_recent_transactions({account!r}, limit=5)",
-          server.get_recent_transactions(account, limit=5))
-    _show("get_spending_by_category(2024-08-01 .. 2024-10-31)",
-          server.get_spending_by_category("2024-08-01", "2024-10-31"))
-    _show("search_transactions('grocery', limit=5)",
-          server.search_transactions("grocery", limit=5))
+    _show(f"get_account_balance({account!r})", server.get_account_balance(account))
+    _show(
+        f"get_recent_transactions({account!r}, limit=5)",
+        server.get_recent_transactions(account, limit=5),
+    )
+    _show(
+        "get_spending_by_category(2024-08-01 .. 2024-10-31)",
+        server.get_spending_by_category("2024-08-01", "2024-10-31"),
+    )
+    _show(
+        "search_transactions('grocery', limit=5)",
+        server.search_transactions("grocery", limit=5),
+    )
     return 0
 
 
