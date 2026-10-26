@@ -43,8 +43,11 @@ dependencies = [
 dev = [
     "ruff>=0.1.0",
     "pytest>=8.0.0",
-    "promptfoo>=0.70.0",
+    "promptfoo>=0.1.0",
 ]
+
+[dependency-groups]
+dev = ["ruff>=0.1.0", "pytest>=8.0.0", "promptfoo>=0.1.0"]
 
 [build-system]
 requires = ["setuptools>=61.0"]
