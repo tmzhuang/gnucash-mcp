@@ -23,6 +23,8 @@ def main() -> int:
     account = sys.argv[1] if len(sys.argv) > 1 else "Checking"
 
     _show("list_accounts", server.list_accounts())
+    _show("get_all_transactions_range", server.get_all_transactions_range())
+    _show("get_transaction_count_by_year", server.get_transaction_count_by_year())
     _show(f"get_account_balance({account!r})", server.get_account_balance(account))
     _show(
         f"get_recent_transactions({account!r}, limit=5)",

@@ -21,15 +21,22 @@ import guard
 # Claude Desktop may launch the process with an arbitrary working directory.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+
+def _env(key: str, default: str) -> str:
+    """Return env var value, falling back to *default* if unset or empty."""
+    v = os.getenv(key)
+    return v if v else default
+
+
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "127.0.0.1"),
-    "port": int(os.getenv("DB_PORT", "3306")),
-    "user": os.getenv("DB_USER", "gnucash_ro"),
-    "password": os.getenv("DB_PASSWORD", ""),
-    "database": os.getenv("DB_NAME", "gnucash"),
+    "host": _env("DB_HOST", "127.0.0.1"),
+    "port": int(_env("DB_PORT", "3306")),
+    "user": _env("DB_USER", "gnucash_ro"),
+    "password": _env("DB_PASSWORD", ""),
+    "database": _env("DB_NAME", "gnucash"),
 }
 
-STATEMENT_TIMEOUT_S = float(os.getenv("QUERY_TIMEOUT_S", "10"))
+STATEMENT_TIMEOUT_S = float(_env("QUERY_TIMEOUT_S", "10"))
 
 # GnuCash stores money as (value_num, value_denom) integer pairs. Never
 # treat value_num as a float. This expression is safe against denom = 0.

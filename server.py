@@ -117,38 +117,116 @@ def _date_bounds_inclusive(start_iso: str, end_iso: str):
     return lo, hi
 
 
+@mcp.tool()
+def get_all_transactions_range() -> str:
+    """Return the earliest and latest transaction dates across all accounts.
+
+    Returns:
+        A JSON-encoded string with {earliest, latest} as ISO 'YYYY-MM-DD' date strings.
+        If no transactions exist, both are null.
+    """
+    rows = query("""
+        SELECT MIN(tx.post_date) AS earliest,
+               MAX(tx.post_date) AS latest
+        FROM transactions tx
+        WHERE EXISTS (
+            SELECT 1 FROM splits s WHERE s.tx_guid = tx.guid
+        )
+    """)
+    row = rows[0]
+    return _ok(
+        {
+            "earliest": row["earliest"][:10] if row["earliest"] else None,
+            "latest": row["latest"][:10] if row["latest"] else None,
+        }
+    )
+
+
+@mcp.tool()
+def get_transaction_count_by_year() -> str:
+    """Return the number of distinct transactions per calendar year.
+
+    Returns:
+        A JSON-encoded string with {years: [{year, txn_count}, ...]}.
+        Only years with at least one transaction are included, ordered oldest first.
+    """
+    rows = query("""
+        SELECT YEAR(tx.post_date) AS year,
+               COUNT(DISTINCT tx.guid) AS txn_count
+        FROM transactions tx
+        WHERE EXISTS (
+            SELECT 1 FROM splits s WHERE s.tx_guid = tx.guid
+        )
+        GROUP BY YEAR(tx.post_date)
+        ORDER BY year
+    """)
+    result = [{"year": int(r["year"]), "txn_count": int(r["txn_count"])} for r in rows]
+    return _ok({"years": result})
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
 
 
+VALID_ACCOUNT_TYPES = frozenset({"ASSET", "LIABILITY", "EQUITY", "INCOME", "EXPENSE"})
+
+
 @mcp.tool()
-def list_accounts() -> str:
-    """List every non-hidden account in the GnuCash book.
+def list_accounts(account_type: str | None = None) -> str:
+    """List every non-hidden account in the GnuCash book, optionally filtered by type.
+
+    Args:
+        account_type: Filter to a single account type (ASSET, LIABILITY, EQUITY,
+                      INCOME, EXPENSE). Omit for all types.
 
     Returns:
         A JSON-encoded string. On success, the payload is:
-        `{"ok": true, "data": [{"guid": "...", "name": "...", "account_type": "ASSET", ...}, ...]}`
+        `{\"ok\": true, \"data\": [{\"guid\": \"...\", \"name\": \"...\", \"account_type\": \"ASSET\", ...}, ...]}`
         The array has the form {guid, name, account_type, parent_guid,
         commodity_guid, commodity_mnemonic}. `account_type` is one of
         ASSET/LIABILITY/EQUITY/INCOME/EXPENSE.
 
         Account names are not guaranteed unique; the guid is authoritative.
     """
-    rows = query(
-        """
-        SELECT a.guid,
-               a.name,
-               a.account_type,
-               a.parent_guid,
-               a.commodity_guid,
-               c.mnemonic AS commodity_mnemonic
-        FROM accounts a
-        LEFT JOIN commodities c ON c.guid = a.commodity_guid
-        WHERE a.hidden = 0
-        ORDER BY a.account_type, a.name
-        """
-    )
+    if account_type is not None:
+        upper = account_type.upper()
+        if upper not in VALID_ACCOUNT_TYPES:
+            return _err(
+                f"Invalid account_type {account_type!r}. "
+                f"Must be one of: {', '.join(sorted(VALID_ACCOUNT_TYPES))}"
+            )
+        rows = query(
+            """
+            SELECT a.guid,
+                   a.name,
+                   a.account_type,
+                   a.parent_guid,
+                   a.commodity_guid,
+                   c.mnemonic AS commodity_mnemonic
+            FROM accounts a
+            LEFT JOIN commodities c ON c.guid = a.commodity_guid
+            WHERE a.hidden = 0
+              AND a.account_type = %s
+            ORDER BY a.name
+            """,
+            (upper,),
+        )
+    else:
+        rows = query(
+            """
+            SELECT a.guid,
+                   a.name,
+                   a.account_type,
+                   a.parent_guid,
+                   a.commodity_guid,
+                   c.mnemonic AS commodity_mnemonic
+            FROM accounts a
+            LEFT JOIN commodities c ON c.guid = a.commodity_guid
+            WHERE a.hidden = 0
+            ORDER BY a.account_type, a.name
+            """
+        )
     return _ok(rows)
 
 
@@ -229,26 +307,48 @@ def get_account_balance(
 
 
 @mcp.tool()
-def get_recent_transactions(account_name: str, limit: int = 20) -> str:
-    """Return the most recent transactions touching a specific account.
+def get_recent_transactions(
+    account_name: str,
+    limit: int = 20,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    order_direction: str = "DESC",
+) -> str:
+    """Return transactions touching a specific account, with optional date filtering.
 
     Args:
         account_name: Substring match against account names. Must match one account.
         limit: Max rows to return (clamped to 1..200).
+        start_date: ISO 'YYYY-MM-DD' (inclusive). Omit for no lower bound.
+        end_date:   ISO 'YYYY-MM-DD' (inclusive). Omit for no upper bound.
+        order_direction: 'DESC' (default, newest first) or 'ASC' (oldest first).
 
     Each row: {post_date, description, memo, amount}. `amount` is the signed
     amount on this account's side of the split (decimal string, e.g. "-42.50").
 
     Returns:
         A JSON-encoded string. On success, the payload is:
-        `{"ok": true, "data": {"start": "2024-08-01", "end": "2024-08-31", "categories": [{"account": "Groceries", "total": "150.00"}, ...]}}`
-
-        `total` is a decimal string (positive = spending).
+        `{"ok": true, "data": {"account": "...", "limit": 20, "transactions": [...]}}`
     """
     acct, err = _resolve_account(account_name)
     if err is not None:
         return err
     limit = max(1, min(int(limit), 200))
+
+    try:
+        date_params = []
+        date_clauses = ""
+        if start_date or end_date:
+            lo, hi = _date_bounds_inclusive(
+                start_date or "1900-01-01",
+                end_date or "2999-12-31",
+            )
+            date_clauses = "AND tx.post_date >= %s AND tx.post_date < %s"
+            date_params = [lo, hi]
+    except ValueError as e:
+        return _err(str(e))
+
+    order_dir = "ASC" if order_direction.upper() == "ASC" else "DESC"
 
     rows = query(
         f"""
@@ -259,12 +359,22 @@ def get_recent_transactions(account_name: str, limit: int = 20) -> str:
         FROM splits s
         JOIN transactions tx ON tx.guid = s.tx_guid
         WHERE s.account_guid = %s
-        ORDER BY tx.post_date DESC, tx.guid DESC
+          {date_clauses}
+        ORDER BY tx.post_date {order_dir}, tx.guid {order_dir}
         LIMIT %s
         """,
-        (acct["guid"], limit),
+        (acct["guid"], *date_params, limit),
     )
-    return _ok({"account": acct["name"], "limit": limit, "transactions": rows})
+    return _ok(
+        {
+            "account": acct["name"],
+            "limit": limit,
+            "start_date": start_date,
+            "end_date": end_date,
+            "order_direction": order_dir,
+            "transactions": rows,
+        }
+    )
 
 
 @mcp.tool()
@@ -306,12 +416,21 @@ def get_spending_by_category(start_date: str, end_date: str) -> str:
 
 
 @mcp.tool()
-def search_transactions(keyword: str, limit: int = 20) -> str:
+def search_transactions(
+    keyword: str,
+    limit: int = 20,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    order_direction: str = "DESC",
+) -> str:
     """Search transaction descriptions and split memos (case-insensitive substring).
 
     Args:
         keyword: Substring to match against transactions.description or splits.memo.
         limit: Max rows to return (clamped to 1..200).
+        start_date: ISO 'YYYY-MM-DD' (inclusive). Omit for no lower bound.
+        end_date:   ISO 'YYYY-MM-DD' (inclusive). Omit for no upper bound.
+        order_direction: 'DESC' (default, newest first) or 'ASC' (oldest first).
 
     Returns:
         A JSON-encoded string. On success, the payload is:
@@ -322,6 +441,21 @@ def search_transactions(keyword: str, limit: int = 20) -> str:
     """
     limit = max(1, min(int(limit), 200))
     pattern = f"%{keyword}%"
+
+    try:
+        date_params = []
+        date_clauses = ""
+        if start_date or end_date:
+            lo, hi = _date_bounds_inclusive(
+                start_date or "1900-01-01",
+                end_date or "2999-12-31",
+            )
+            date_clauses = "AND tx.post_date >= %s AND tx.post_date < %s"
+            date_params = [lo, hi]
+    except ValueError as e:
+        return _err(str(e))
+
+    order_dir = "ASC" if order_direction.upper() == "ASC" else "DESC"
 
     rows = query(
         f"""
@@ -336,12 +470,22 @@ def search_transactions(keyword: str, limit: int = 20) -> str:
         JOIN accounts a ON a.guid = s.account_guid
         WHERE a.hidden = 0
           AND (tx.description LIKE %s OR s.memo LIKE %s)
-        ORDER BY tx.post_date DESC, tx.guid DESC
+          {date_clauses}
+        ORDER BY tx.post_date {order_dir}, tx.guid {order_dir}
         LIMIT %s
         """,
-        (pattern, pattern, limit),
+        (pattern, pattern, *date_params, limit),
     )
-    return _ok({"keyword": keyword, "limit": limit, "matches": rows})
+    return _ok(
+        {
+            "keyword": keyword,
+            "limit": limit,
+            "start_date": start_date,
+            "end_date": end_date,
+            "order_direction": order_dir,
+            "matches": rows,
+        }
+    )
 
 
 @mcp.tool()
@@ -456,4 +600,12 @@ def get_income_by_category(start_date: str, end_date: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    import os
+
+    transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
+    if transport == "http":
+        host = os.getenv("MCP_HOST", "127.0.0.1")
+        port = int(os.getenv("MCP_PORT", "8990"))
+        mcp.run(transport="streamable-http", host=host, port=port)
+    else:
+        mcp.run(transport="stdio")

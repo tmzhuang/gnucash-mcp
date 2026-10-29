@@ -13,10 +13,12 @@ from server import (
     _ok,
     _resolve_account,
     get_account_balance,
+    get_all_transactions_range,
     get_income_by_category,
     get_net_worth,
     get_recent_transactions,
     get_spending_by_category,
+    get_transaction_count_by_year,
     list_accounts,
     search_transactions,
 )
@@ -277,6 +279,48 @@ class TestListAccounts:
             assert parsed["success"]
             assert parsed["data"][0]["commodity_mnemonic"] is None
 
+    def test_filter_by_account_type(self):
+        mock_result = [
+            {
+                "guid": "g1",
+                "name": "Cash",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "commodity_guid": "c1",
+                "commodity_mnemonic": "CAD",
+            },
+        ]
+
+        def mock_query(sql, params):
+            assert params == ("ASSET",)
+            return mock_result
+
+        with patch("server.query", side_effect=mock_query):
+            result = list_accounts(account_type="ASSET")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert len(parsed["data"]) == 1
+            assert parsed["data"][0]["name"] == "Cash"
+
+    def test_filter_by_account_type_case_insensitive(self):
+        mock_result = [{"guid": "g1", "name": "Loan", "account_type": "LIABILITY"}]
+
+        def mock_query(sql, params):
+            assert params == ("LIABILITY",)
+            return mock_result
+
+        with patch("server.query", side_effect=mock_query):
+            result = list_accounts(account_type="liability")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+
+    def test_invalid_account_type(self):
+        result = list_accounts(account_type="FAKE_TYPE")
+        parsed = _parse_response(result)
+        assert not parsed["success"]
+        assert "Invalid account_type" in parsed["error"]
+        assert "ASSET" in parsed["error"]
+
 
 class TestGetAccountBalance:
     """Test get_account_balance tool."""
@@ -502,6 +546,70 @@ class TestGetRecentTransactions:
             parsed = _parse_response(result)
             assert parsed["data"]["limit"] == 1
 
+    def test_with_date_range(self):
+        mock_account = {"guid": "g1", "name": "Food", "account_type": "ASSET"}
+        mock_transactions = [
+            {
+                "post_date": "2024-06-15",
+                "description": "June purchase",
+                "memo": "",
+                "amount": "-30.00",
+            }
+        ]
+
+        def mock_query(sql, params):
+            if "account_guid" in sql.lower():
+                return mock_transactions
+            return [mock_account]
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_recent_transactions(
+                "Food", start_date="2024-06-01", end_date="2024-06-30"
+            )
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["start_date"] == "2024-06-01"
+            assert parsed["data"]["end_date"] == "2024-06-30"
+
+    def test_order_direction_asc(self):
+        mock_account = {"guid": "g1", "name": "Food", "account_type": "ASSET"}
+        mock_transactions = [
+            {
+                "post_date": "2024-01-15",
+                "description": "Oldest",
+                "memo": "",
+                "amount": "-10.00",
+            },
+            {
+                "post_date": "2024-06-15",
+                "description": "Newest",
+                "memo": "",
+                "amount": "-20.00",
+            },
+        ]
+
+        def mock_query(sql, params):
+            if "account_guid" in sql.lower():
+                return mock_transactions
+            return [mock_account]
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_recent_transactions("Food", order_direction="ASC")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["order_direction"] == "ASC"
+
+    def test_invalid_date_range(self):
+        mock_account = {"guid": "g1", "name": "Test", "account_type": "ASSET"}
+
+        with patch("server.query", return_value=[mock_account]):
+            result = get_recent_transactions(
+                "Test", start_date="2024-06-30", end_date="2024-01-01"
+            )
+            parsed = _parse_response(result)
+            assert not parsed["success"]
+            assert "end_date must be >= start_date" in parsed["error"]
+
 
 class TestGetSpendingByCategory:
     """Test get_spending_by_category tool."""
@@ -671,6 +779,52 @@ class TestSearchTransactions:
             assert parsed["success"]
             assert parsed["data"]["matches"] == []
 
+    def test_with_date_range(self):
+        mock_result = [
+            {
+                "post_date": "2024-06-15",
+                "description": "June purchase",
+                "memo": "",
+                "account": "Groceries",
+                "account_type": "EXPENSE",
+                "amount": "-30.00",
+            }
+        ]
+        with patch("server.query", return_value=mock_result):
+            result = search_transactions(
+                "purchase", start_date="2024-06-01", end_date="2024-06-30"
+            )
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["start_date"] == "2024-06-01"
+            assert parsed["data"]["end_date"] == "2024-06-30"
+
+    def test_order_direction_asc(self):
+        mock_result = [
+            {
+                "post_date": "2024-01-15",
+                "description": "Oldest match",
+                "memo": "",
+                "account": "Groceries",
+                "account_type": "EXPENSE",
+                "amount": "-10.00",
+            }
+        ]
+        with patch("server.query", return_value=mock_result):
+            result = search_transactions("match", order_direction="ASC")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["order_direction"] == "ASC"
+
+    def test_invalid_date_range(self):
+        with patch("server.query", return_value=[]):
+            result = search_transactions(
+                "test", start_date="2024-06-30", end_date="2024-01-01"
+            )
+            parsed = _parse_response(result)
+            assert not parsed["success"]
+            assert "end_date must be >= start_date" in parsed["error"]
+
 
 class TestGetIncomeByCategory:
     """Test get_income_by_category tool."""
@@ -694,6 +848,95 @@ class TestGetIncomeByCategory:
             result = get_income_by_category("2024-01-01", "2024-01-31")
             parsed = _parse_response(result)
             assert parsed["data"]["income_earned"][0]["total"] == "5000.00"
+
+
+class TestGetAllTransactionsRange:
+    """Test get_all_transactions_range tool."""
+
+    def test_returns_date_range(self):
+        mock_result = [
+            {"earliest": "2016-03-15 00:00:00", "latest": "2024-01-10 00:00:00"},
+        ]
+        with patch("server.query", return_value=mock_result):
+            result = get_all_transactions_range()
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["earliest"] == "2016-03-15"
+            assert parsed["data"]["latest"] == "2024-01-10"
+
+    def test_empty_database(self):
+        mock_result = [
+            {"earliest": None, "latest": None},
+        ]
+        with patch("server.query", return_value=mock_result):
+            result = get_all_transactions_range()
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["earliest"] is None
+            assert parsed["data"]["latest"] is None
+
+    def test_single_day_range(self):
+        mock_result = [
+            {"earliest": "2024-06-15 14:30:00", "latest": "2024-06-15 18:45:00"},
+        ]
+        with patch("server.query", return_value=mock_result):
+            result = get_all_transactions_range()
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["earliest"] == "2024-06-15"
+            assert parsed["data"]["latest"] == "2024-06-15"
+
+
+class TestGetTransactionCountByYear:
+    """Test get_transaction_count_by_year tool."""
+
+    def test_returns_yearly_counts(self):
+        mock_result = [
+            {"year": 2020, "txn_count": 342},
+            {"year": 2021, "txn_count": 589},
+            {"year": 2022, "txn_count": 615},
+            {"year": 2023, "txn_count": 701},
+            {"year": 2024, "txn_count": 458},
+        ]
+        with patch("server.query", return_value=mock_result):
+            result = get_transaction_count_by_year()
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert len(parsed["data"]["years"]) == 5
+            assert parsed["data"]["years"][0] == {"year": 2020, "txn_count": 342}
+            assert parsed["data"]["years"][-1] == {"year": 2024, "txn_count": 458}
+
+    def test_empty_database(self):
+        with patch("server.query", return_value=[]):
+            result = get_transaction_count_by_year()
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["years"] == []
+
+    def test_single_year(self):
+        mock_result = [
+            {"year": 2024, "txn_count": 150},
+        ]
+        with patch("server.query", return_value=mock_result):
+            result = get_transaction_count_by_year()
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert len(parsed["data"]["years"]) == 1
+            assert parsed["data"]["years"][0]["year"] == 2024
+
+    def test_ordered_oldest_first(self):
+        # Mock returns data sorted by YEAR() ASC as the SQL query specifies
+        mock_result = [
+            {"year": 2020, "txn_count": 50},
+            {"year": 2023, "txn_count": 200},
+            {"year": 2025, "txn_count": 10},
+        ]
+        with patch("server.query", return_value=mock_result):
+            result = get_transaction_count_by_year()
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            # SQL ORDER BY year ensures oldest-first ordering
+            assert [y["year"] for y in parsed["data"]["years"]] == [2020, 2023, 2025]
 
 
 class TestErrorHandling:
