@@ -45,7 +45,7 @@ The server provides the following tools to the LLM:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/gnucash-mcp.git
+git clone https://github.com/tmzhuang/gnucash-mcp.git
 cd gnucash-mcp
 
 # Create virtual environment
