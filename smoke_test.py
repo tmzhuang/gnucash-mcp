@@ -35,6 +35,10 @@ def main() -> int:
         server.get_spending_by_category("2024-08-01", "2024-10-31"),
     )
     _show(
+        "get_spending_by_category(2024-08-01 .. 2024-10-31, include_root=True)",
+        server.get_spending_by_category("2024-08-01", "2024-10-31", include_root=True),
+    )
+    _show(
         "search_transactions('grocery', limit=5)",
         server.search_transactions("grocery", limit=5),
     )

@@ -652,6 +652,50 @@ class TestGetSpendingByCategory:
             assert parsed["data"]["categories"][0]["total"] == "100.00"
             assert parsed["data"]["categories"][1]["total"] == "50.00"
 
+    def test_include_root_returns_relative_path(self):
+        mock_result = [
+            {"account": "Auto:Fuel", "account_type": "EXPENSE", "total": "200.00"},
+            {"account": "Groceries", "account_type": "EXPENSE", "total": "150.00"},
+        ]
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
+            result = get_spending_by_category(
+                "2024-01-01", "2024-01-31", include_root=True
+            )
+            parsed = _parse_response(result)
+            assert parsed["data"]["categories"][0]["account"] == "Auto:Fuel"
+            assert parsed["data"]["categories"][1]["account"] == "Groceries"
+
+    def test_account_type_filter(self):
+        mock_result = [
+            {"account": "Salary", "account_type": "INCOME", "total": "3000.00"},
+        ]
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
+            result = get_spending_by_category(
+                "2024-01-01", "2024-01-31", account_type="INCOME"
+            )
+            parsed = _parse_response(result)
+            assert parsed["data"]["categories"][0]["account"] == "Salary"
+            assert parsed["data"]["categories"][0]["account_type"] == "INCOME"
+
+    def test_invalid_account_type(self):
+        result = get_spending_by_category(
+            "2024-01-01", "2024-01-31", account_type="FAKE"
+        )
+        parsed = _parse_response(result)
+        assert not parsed["success"]
+        assert "Invalid account_type" in parsed["error"]
+        assert "EXPENSE" in parsed["error"]
+
+    def test_backward_compatible_defaults(self):
+        """Calling without new params should still work (leaf name, EXPENSE)."""
+        mock_result = [
+            {"account": "Groceries", "account_type": "EXPENSE", "total": "150.00"},
+        ]
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
+            result = get_spending_by_category("2024-01-01", "2024-01-31")
+            parsed = _parse_response(result)
+            assert parsed["data"]["categories"][0]["account"] == "Groceries"
+
 
 class TestGetNetWorth:
     """Test get_net_worth tool."""

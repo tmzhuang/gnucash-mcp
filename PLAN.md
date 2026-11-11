@@ -43,6 +43,36 @@
 
 ---
 
+## Tool Improvement Ideas (from agent experience)
+
+### 💡 1: `get_spending_by_category` — relative paths + account_type filter
+**Motivation:** Agent had to run raw SQL and build recursive CTEs just to get `Expenses:Auto:Fuel` instead of `Fuel`. Also needed EXPENSE-only filtering which the tool doesn't support.
+**Design:**
+- Add `account_type: str | None = None` — filter by account type (default "EXPENSE", validated against whitelist)
+- Add `include_root: bool = False` — if True, return full path from Expenses root (e.g. `Expenses:Auto:Fuel`); if False, return relative path only (e.g. `Auto:Fuel`)
+- Uses recursive CTE to build paths from Expenses ROOT account
+- Backward compatible: default behavior unchanged (leaf name only)
+
+### 💡 2: Transaction count by date range + type filter
+**Motivation:** Asked for "expense transaction counts by month in 2023" — had to run raw SQL. `get_transaction_count_by_year` only does calendar years.
+**Design:**
+- Add optional `account_type` param to `get_transaction_count_by_year` (or a new `get_transaction_counts(start_date, end_date, account_type?)`)
+- Returns per-period counts with half-open date bounds
+
+### 💡 3: `list_accounts` returning full paths
+**Motivation:** Hierarchical path (`Expenses:Auto:Fuel`) requires recursive CTE logic. Current tool returns flat names with pagination.
+**Design:**
+- Add `full_path: bool = False` — if True, include `path` field built via recursive CTE from ROOT ancestors
+- Or separate `get_account_path(guid)` tool for single-account lookup
+
+### 💡 4: `get_spending_by_category` accepting `account_type` filter
+**Motivation:** Agent had to manually join and filter for EXPENSE accounts in raw SQL. Existing tool hardcodes "EXPENSE" with no way to switch.
+**Design:**
+- Add `account_type: str | None = None` — default "EXPENSE", validated against whitelist
+- If None, returns all account types (useful for income+expense combined views)
+
+---
+
 ## Planned Features (ranked by insight gain)
 
 ### 🔥 Priority 1: Budget variance report (`get_budget_variance`)

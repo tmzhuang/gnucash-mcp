@@ -379,39 +379,83 @@ def get_recent_transactions(
 
 
 @mcp.tool()
-def get_spending_by_category(start_date: str, end_date: str) -> str:
-    """Aggregate EXPENSE-account spending over an inclusive date range.
+def get_spending_by_category(
+    start_date: str,
+    end_date: str,
+    account_type: str | None = None,
+    include_root: bool = False,
+) -> str:
+    """Aggregate spending by account over an inclusive date range.
 
     Args:
         start_date: ISO 'YYYY-MM-DD' (inclusive).
         end_date:   ISO 'YYYY-MM-DD' (inclusive).
+        account_type: Account type to filter by (default "EXPENSE").
+            Valid types: ASSET, EQUITY, EXPENSE, INCOME, LIABILITY.
+        include_root: If True, return full path from Expenses root
+            (e.g. 'Expenses:Auto:Fuel'). If False, return relative path
+            (e.g. 'Auto:Fuel'). Backward-compatible default is leaf name only.
 
-    Returns one row per expense account with a non-zero total:
+    Returns one row per account with a non-zero total:
     {account, account_type, total}. `total` is a decimal string (positive =
     spending, per GnuCash's expense sign convention).
     """
+    if account_type is None:
+        account_type = "EXPENSE"
+    upper = account_type.upper()
+    if upper not in VALID_ACCOUNT_TYPES:
+        return _err(
+            f"Invalid account_type {account_type!r}. "
+            f"Must be one of: {', '.join(sorted(VALID_ACCOUNT_TYPES))}"
+        )
+
     try:
         lo, hi = _date_bounds_inclusive(start_date, end_date)
     except ValueError as e:
         return _err(str(e))
 
+    # Build the query based on include_root.
+    if include_root:
+        # Recursive CTE builds path from Expenses root; strip 'Expenses:' prefix.
+        name_expr = "SUBSTR(tree.path, LENGTH('Expenses') + 2)"
+        tree_cte = """
+        WITH RECURSIVE tree AS (
+            SELECT guid, name, account_type, hidden, CAST(name AS CHAR(2000)) AS path
+            FROM accounts
+            WHERE name = 'Expenses'
+              AND parent_guid = (
+                  SELECT guid FROM accounts
+                  WHERE name = 'Root Account' AND account_type = 'ROOT'
+              )
+            UNION ALL
+            SELECT a.guid, a.name, a.account_type, a.hidden, CONCAT(t.path, ':', a.name)
+            FROM accounts a JOIN tree t ON a.parent_guid = t.guid
+        )
+        """
+        from_clause = "splits s\n        JOIN transactions tx ON tx.guid = s.tx_guid\n        JOIN tree ON tree.guid = s.account_guid"
+        acct_col = "tree"
+    else:
+        name_expr = "a.name"
+        tree_cte = ""
+        from_clause = "splits s\n        JOIN transactions tx ON tx.guid = s.tx_guid\n        JOIN accounts a ON a.guid = s.account_guid"
+        acct_col = "a"
+
     rows = query(
         f"""
-        SELECT a.name AS account,
-               a.account_type,
+        {tree_cte}
+        SELECT {name_expr} AS account,
+               {acct_col}.account_type,
                SUM({AMOUNT_EXPR}) AS total
-        FROM splits s
-        JOIN transactions tx ON tx.guid = s.tx_guid
-        JOIN accounts a ON a.guid = s.account_guid
-        WHERE a.account_type = 'EXPENSE'
-          AND a.hidden = 0
+        FROM {from_clause}
+        WHERE {acct_col}.account_type = %s
+          AND {acct_col}.hidden = 0
           AND tx.post_date >= %s
           AND tx.post_date < %s
-        GROUP BY a.guid, a.name, a.account_type
+        GROUP BY {name_expr}, {acct_col}.account_type, {name_expr}
         HAVING total <> 0
         ORDER BY total DESC
         """,
-        (lo, hi),
+        (upper, lo, hi),
     )
     return _ok({"start": start_date, "end": end_date, "categories": rows})
 
