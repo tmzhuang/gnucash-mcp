@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from db import AMOUNT_EXPR, _connection, query
+from gnucash_mcp.db import AMOUNT_EXPR, _connection, query
 
 
 class TestAMOUNT_EXPR:
@@ -87,7 +87,7 @@ class TestQuery:
         mock_cursor.fetchall.return_value = [{"id": 1, "name": "test"}]
 
         with patch("mariadb.connect") as mock_connect:
-            with patch("guard.check") as mock_guard:
+            with patch("gnucash_mcp.guard.check") as mock_guard:
                 mock_guard.return_value = "SELECT * FROM accounts WHERE id = %s"
                 mock_conn = MagicMock()
                 mock_cursor_instance = MagicMock()
@@ -109,7 +109,7 @@ class TestQuery:
         mock_cursor.fetchall.return_value = [{"id": 1, "name": "test"}]
 
         with patch("mariadb.connect") as mock_connect:
-            with patch("guard.check") as mock_guard:
+            with patch("gnucash_mcp.guard.check") as mock_guard:
                 mock_guard.return_value = "SELECT * FROM accounts"
                 mock_conn = MagicMock()
                 mock_cursor_instance = MagicMock()
@@ -199,7 +199,7 @@ class TestQuery:
             mock_conn.cursor.return_value = mock_cursor
             mock_connect.return_value = mock_conn
 
-            with patch("guard.check") as mock_guard:
+            with patch("gnucash_mcp.guard.check") as mock_guard:
                 mock_guard.return_value = "SELECT 1"
                 query("SELECT 1")
                 mock_guard.assert_called_once_with("SELECT 1")

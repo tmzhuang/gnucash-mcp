@@ -49,6 +49,9 @@ dev = [
 [dependency-groups]
 dev = ["ruff>=0.1.0", "pytest>=8.0.0", "promptfoo>=0.1.0"]
 
+[project.scripts]
+gnucash-mcp = "gnucash_mcp.server:main"
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"

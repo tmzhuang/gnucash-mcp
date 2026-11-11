@@ -8,7 +8,7 @@ Run:  python smoke_test.py
 import json
 import sys
 
-import server
+from gnucash_mcp import server
 
 
 def _show(label: str, raw: str) -> None:

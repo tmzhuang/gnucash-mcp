@@ -2,7 +2,7 @@
 
 import pytest
 
-from guard import _strip_comments, check
+from gnucash_mcp.guard import _strip_comments, check
 
 
 class TestStripComments:

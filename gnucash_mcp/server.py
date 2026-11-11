@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from mcp.server.mcpserver import MCPServer
 
-from db import AMOUNT_EXPR, query
+from .db import AMOUNT_EXPR, query
 
 mcp = MCPServer("gnucash-readonly")
 
@@ -886,7 +886,8 @@ def get_budget_variance(
     )
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the gnucash-mcp CLI."""
     import os
 
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
@@ -896,3 +897,7 @@ if __name__ == "__main__":
         mcp.run(transport="streamable-http", host=host, port=port)
     else:
         mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()

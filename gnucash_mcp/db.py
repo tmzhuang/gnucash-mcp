@@ -15,11 +15,11 @@ from typing import Any
 import mariadb
 from dotenv import load_dotenv
 
-import guard
+from . import guard
 
-# Load .env from the directory this file lives in — not from cwd, because
-# Claude Desktop may launch the process with an arbitrary working directory.
-load_dotenv(Path(__file__).resolve().parent / ".env")
+# Load .env from the project root (parent of this package).
+# This is needed because cwd may be arbitrary when launched by MCP clients.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 def _env(key: str, default: str) -> str:

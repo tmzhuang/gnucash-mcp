@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from server import (
+from gnucash_mcp.server import (
     _date_bounds_inclusive,
     _err,
     _json_default,
@@ -130,7 +130,7 @@ class TestResolveAccount:
                 "path": "Assets:EQ Bank",
             }
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             account, error = _resolve_account("EQ Bank")
             assert error is None
             assert account["name"] == "EQ Bank"
@@ -145,7 +145,7 @@ class TestResolveAccount:
                 "path": "Assets:Current:EQ Bank",
             }
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             account, error = _resolve_account("Root Account:EQ Bank")
             assert error is None
             assert account["name"] == "EQ Bank"
@@ -160,12 +160,12 @@ class TestResolveAccount:
                 "path": "Assets:Current Assets:EQ Bank",
             }
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             account, error = _resolve_account("Assets:Current Assets:EQ Bank")
             assert error is None
 
     def test_no_match_returns_error(self):
-        with patch("server.query", return_value=[]):
+        with patch("gnucash_mcp.server.query", return_value=[]):
             account, error = _resolve_account("NonExistent")
             assert error is not None
             assert "No account matching" in error
@@ -188,7 +188,7 @@ class TestResolveAccount:
                 "path": "Liabilities:EQ Bank",
             },
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             account, error = _resolve_account("EQ Bank")
             assert error is not None
             assert "2 accounts match" in error
@@ -205,7 +205,7 @@ class TestResolveAccount:
                 "path": "Assets:EQ Bank",
             },
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             account, error = _resolve_account("EQ Bank")
             assert error is None
             assert account["name"] == "EQ Bank"
@@ -220,7 +220,7 @@ class TestResolveAccount:
                 "path": "Assets:Current Assets:EQ Bank",
             }
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             account, error = _resolve_account("Assets:Current Assets:EQ Bank")
             assert error is None
             assert account["path"] == "Assets:Current Assets:EQ Bank"
@@ -248,7 +248,7 @@ class TestListAccounts:
                 "commodity_mnemonic": "USD",
             },
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = list_accounts()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -257,7 +257,7 @@ class TestListAccounts:
             assert parsed["data"][1]["name"] == "Credit Card"
 
     def test_empty_result(self):
-        with patch("server.query", return_value=[]):
+        with patch("gnucash_mcp.server.query", return_value=[]):
             result = list_accounts()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -274,7 +274,7 @@ class TestListAccounts:
                 "commodity_mnemonic": None,
             },
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = list_accounts()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -296,7 +296,7 @@ class TestListAccounts:
             assert params == ("ASSET",)
             return mock_result
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = list_accounts(account_type="ASSET")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -310,7 +310,7 @@ class TestListAccounts:
             assert params == ("LIABILITY",)
             return mock_result
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = list_accounts(account_type="liability")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -346,7 +346,7 @@ class TestGetAccountBalance:
             # Second call: balance query (has 'tree' in SQL)
             return [{"balance": "100.00"}]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_account_balance("EQ Bank", include_children=True)
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -371,7 +371,7 @@ class TestGetAccountBalance:
                 ]
             return [{"balance": "50.00"}]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_account_balance("EQ Bank", include_children=False)
             parsed = _parse_response(result)
             assert parsed["data"]["include_children"] is False
@@ -393,7 +393,7 @@ class TestGetAccountBalance:
                 ]
             return [{"balance": "200.00"}]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_account_balance("EQ Bank", as_of_date="2024-01-15")
             parsed = _parse_response(result)
             assert parsed["data"]["as_of"] == "2024-01-15"
@@ -415,7 +415,7 @@ class TestGetAccountBalance:
                 ]
             return [{"balance": "-500.00"}]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_account_balance("Credit Card")
             parsed = _parse_response(result)
             assert parsed["data"]["raw_ledger_balance"] == "-500.00"
@@ -423,7 +423,7 @@ class TestGetAccountBalance:
 
     def test_invalid_date(self):
         # Invalid date should return error before querying database
-        with patch("server.query"):
+        with patch("gnucash_mcp.server.query"):
             result = get_account_balance("EQ Bank", as_of_date="invalid")
             parsed = _parse_response(result)
             assert not parsed["success"]
@@ -433,7 +433,7 @@ class TestGetAccountBalance:
         def mock_query(sql, params):
             return []
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_account_balance("NonExistent")
             parsed = _parse_response(result)
             assert not parsed["success"]
@@ -463,7 +463,7 @@ class TestGetAccountBalance:
                 ]
             return []
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_account_balance("EQ Bank")
             parsed = _parse_response(result)
             assert not parsed["success"]
@@ -497,7 +497,7 @@ class TestGetRecentTransactions:
                 return mock_transactions
             return [mock_account]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_recent_transactions("Food", limit=5)
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -520,7 +520,7 @@ class TestGetRecentTransactions:
                 return mock_transactions
             return [mock_account]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_recent_transactions("Test", limit=300)
             parsed = _parse_response(result)
             # Should clamp to 200
@@ -542,7 +542,7 @@ class TestGetRecentTransactions:
                 return mock_transactions
             return [mock_account]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_recent_transactions("Test", limit=0)
             parsed = _parse_response(result)
             assert parsed["data"]["limit"] == 1
@@ -563,7 +563,7 @@ class TestGetRecentTransactions:
                 return mock_transactions
             return [mock_account]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_recent_transactions(
                 "Food", start_date="2024-06-01", end_date="2024-06-30"
             )
@@ -594,7 +594,7 @@ class TestGetRecentTransactions:
                 return mock_transactions
             return [mock_account]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_recent_transactions("Food", order_direction="ASC")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -603,7 +603,7 @@ class TestGetRecentTransactions:
     def test_invalid_date_range(self):
         mock_account = {"guid": "g1", "name": "Test", "account_type": "ASSET"}
 
-        with patch("server.query", return_value=[mock_account]):
+        with patch("gnucash_mcp.server.query", return_value=[mock_account]):
             result = get_recent_transactions(
                 "Test", start_date="2024-06-30", end_date="2024-01-01"
             )
@@ -620,7 +620,7 @@ class TestGetSpendingByCategory:
             {"account": "Groceries", "account_type": "EXPENSE", "total": "150.00"},
             {"account": "Restaurants", "account_type": "EXPENSE", "total": "75.00"},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_spending_by_category("2024-01-01", "2024-01-31")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -629,7 +629,7 @@ class TestGetSpendingByCategory:
             assert len(parsed["data"]["categories"]) == 2
 
     def test_empty_result(self):
-        with patch("server.query", return_value=[]):
+        with patch("gnucash_mcp.server.query", return_value=[]):
             result = get_spending_by_category("2024-01-01", "2024-01-31")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -646,7 +646,7 @@ class TestGetSpendingByCategory:
             {"account": "Category A", "account_type": "EXPENSE", "total": "100.00"},
             {"account": "Category B", "account_type": "EXPENSE", "total": "50.00"},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_spending_by_category("2024-01-01", "2024-01-31")
             parsed = _parse_response(result)
             assert parsed["data"]["categories"][0]["total"] == "100.00"
@@ -663,7 +663,7 @@ class TestGetNetWorth:
             {"account_type": "ASSET", "balance": Decimal("50000.00")},
             {"account_type": "LIABILITY", "balance": Decimal("-20000.00")},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_net_worth()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -672,7 +672,7 @@ class TestGetNetWorth:
             assert parsed["data"]["net_worth"] == "30000.00"
 
     def test_empty_assets_and_liabilities(self):
-        with patch("server.query", return_value=[]):
+        with patch("gnucash_mcp.server.query", return_value=[]):
             result = get_net_worth()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -687,7 +687,7 @@ class TestGetNetWorth:
             {"account_type": "ASSET", "balance": Decimal("100.00")},
             {"account_type": "LIABILITY", "balance": Decimal("-40.00")},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_net_worth(as_of_date="2024-01-15")
             parsed = _parse_response(result)
             assert parsed["data"]["as_of"] == "2024-01-15"
@@ -715,7 +715,7 @@ class TestSearchTransactions:
                 "amount": "-8.50",
             },
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = search_transactions("coffee", limit=5)
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -734,7 +734,7 @@ class TestSearchTransactions:
                 "amount": "-50.00",
             },
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = search_transactions("grocery")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -751,7 +751,7 @@ class TestSearchTransactions:
                 "amount": "-50.00",
             },
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = search_transactions("grocery")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -768,13 +768,13 @@ class TestSearchTransactions:
                 "amount": "0.00",
             }
         ] * 300
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = search_transactions("test", limit=300)
             parsed = _parse_response(result)
             assert parsed["data"]["limit"] == 200
 
     def test_no_matches(self):
-        with patch("server.query", return_value=[]):
+        with patch("gnucash_mcp.server.query", return_value=[]):
             result = search_transactions("nonexistent")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -791,7 +791,7 @@ class TestSearchTransactions:
                 "amount": "-30.00",
             }
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = search_transactions(
                 "purchase", start_date="2024-06-01", end_date="2024-06-30"
             )
@@ -811,14 +811,14 @@ class TestSearchTransactions:
                 "amount": "-10.00",
             }
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = search_transactions("match", order_direction="ASC")
             parsed = _parse_response(result)
             assert parsed["success"]
             assert parsed["data"]["order_direction"] == "ASC"
 
     def test_invalid_date_range(self):
-        with patch("server.query", return_value=[]):
+        with patch("gnucash_mcp.server.query", return_value=[]):
             result = search_transactions(
                 "test", start_date="2024-06-30", end_date="2024-01-01"
             )
@@ -835,7 +835,7 @@ class TestGetIncomeByCategory:
             {"account": "Salary", "account_type": "INCOME", "total": "5000.00"},
             {"account": "Freelance", "account_type": "INCOME", "total": "1500.00"},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_income_by_category("2024-01-01", "2024-01-31")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -845,7 +845,7 @@ class TestGetIncomeByCategory:
         mock_result = [
             {"account": "Salary", "account_type": "INCOME", "total": "5000.00"}
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_income_by_category("2024-01-01", "2024-01-31")
             parsed = _parse_response(result)
             assert parsed["data"]["income_earned"][0]["total"] == "5000.00"
@@ -858,7 +858,7 @@ class TestGetAllTransactionsRange:
         mock_result = [
             {"earliest": "2016-03-15 00:00:00", "latest": "2024-01-10 00:00:00"},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_all_transactions_range()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -869,7 +869,7 @@ class TestGetAllTransactionsRange:
         mock_result = [
             {"earliest": None, "latest": None},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_all_transactions_range()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -880,7 +880,7 @@ class TestGetAllTransactionsRange:
         mock_result = [
             {"earliest": "2024-06-15 14:30:00", "latest": "2024-06-15 18:45:00"},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_all_transactions_range()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -899,7 +899,7 @@ class TestGetTransactionCountByYear:
             {"year": 2023, "txn_count": 701},
             {"year": 2024, "txn_count": 458},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_transaction_count_by_year()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -908,7 +908,7 @@ class TestGetTransactionCountByYear:
             assert parsed["data"]["years"][-1] == {"year": 2024, "txn_count": 458}
 
     def test_empty_database(self):
-        with patch("server.query", return_value=[]):
+        with patch("gnucash_mcp.server.query", return_value=[]):
             result = get_transaction_count_by_year()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -918,7 +918,7 @@ class TestGetTransactionCountByYear:
         mock_result = [
             {"year": 2024, "txn_count": 150},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_transaction_count_by_year()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -932,7 +932,7 @@ class TestGetTransactionCountByYear:
             {"year": 2023, "txn_count": 200},
             {"year": 2025, "txn_count": 10},
         ]
-        with patch("server.query", return_value=mock_result):
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
             result = get_transaction_count_by_year()
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -945,7 +945,7 @@ class TestErrorHandling:
 
     def test_search_transactions_empty_result(self):
         """Test when search returns no matches."""
-        with patch("server.query", return_value=[]):
+        with patch("gnucash_mcp.server.query", return_value=[]):
             result = search_transactions("nonexistent")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -1001,7 +1001,7 @@ class TestGetBudgetVariance:
                     }
                 ]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_budget_variance("2024 Budget", period=0)
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -1011,7 +1011,7 @@ class TestGetBudgetVariance:
 
     def test_budget_not_found(self):
         """Test error when budget name doesn't exist."""
-        with patch("server.query", return_value=[]):
+        with patch("gnucash_mcp.server.query", return_value=[]):
             result = get_budget_variance("Nonexistent")
             parsed = _parse_response(result)
             assert not parsed["success"]
@@ -1019,7 +1019,7 @@ class TestGetBudgetVariance:
 
     def test_invalid_period_int(self):
         """Test error when period index is out of range."""
-        with patch("server.query", return_value=self._mock_budget_query()):
+        with patch("gnucash_mcp.server.query", return_value=self._mock_budget_query()):
             result = get_budget_variance("2024 Budget", period=99)
             parsed = _parse_response(result)
             assert not parsed["success"]
@@ -1027,7 +1027,7 @@ class TestGetBudgetVariance:
 
     def test_invalid_period_str(self):
         """Test error when period string is invalid."""
-        with patch("server.query", return_value=self._mock_budget_query()):
+        with patch("gnucash_mcp.server.query", return_value=self._mock_budget_query()):
             result = get_budget_variance("2024 Budget", period="invalid")
             parsed = _parse_response(result)
             assert not parsed["success"]
@@ -1060,7 +1060,7 @@ class TestGetBudgetVariance:
                     }
                 ]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_budget_variance("2024 Budget", period="all")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -1087,7 +1087,7 @@ class TestGetBudgetVariance:
             else:
                 return []
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_budget_variance("2024 Budget", period="ytd")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -1119,7 +1119,7 @@ class TestGetBudgetVariance:
                     }
                 ]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_budget_variance("2024 Budget", period=0)
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -1154,7 +1154,7 @@ class TestGetBudgetVariance:
                     }
                 ]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_budget_variance("2024 Budget", period=0)
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -1199,7 +1199,7 @@ class TestGetBudgetVariance:
                     },
                 ]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_budget_variance("2024 Budget", period=0, account="Groceries")
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -1228,7 +1228,7 @@ class TestGetBudgetVariance:
                     }
                 ]
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_budget_variance("2024 Budget", period=0)
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -1266,7 +1266,7 @@ class TestGetBudgetVariance:
             else:
                 return []
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_budget_variance("Yearly budget", period=1)
             parsed = _parse_response(result)
             assert parsed["success"]
@@ -1291,7 +1291,7 @@ class TestGetBudgetVariance:
                 ]
             return []
 
-        with patch("server.query", side_effect=mock_query):
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
             result = get_budget_variance("Old Budget")
             parsed = _parse_response(result)
             assert not parsed["success"]
