@@ -14,6 +14,7 @@ from server import (
     _resolve_account,
     get_account_balance,
     get_all_transactions_range,
+    get_budget_variance,
     get_income_by_category,
     get_net_worth,
     get_recent_transactions,
@@ -949,3 +950,349 @@ class TestErrorHandling:
             parsed = _parse_response(result)
             assert parsed["success"]
             assert parsed["data"]["matches"] == []
+
+
+class TestGetBudgetVariance:
+    """Test get_budget_variance tool."""
+
+    def _mock_budget_query(self, budget_name="2024 Budget"):
+        """Return mock rows for the budget resolution query."""
+        guid = (
+            "7f6d17d001fe4cfb96a51c5a427a314e"
+            if budget_name == "2024 Budget"
+            else "0091542c404443b2abb39ebffddc21a1"
+        )
+        return [
+            {
+                "guid": guid,
+                "name": budget_name,
+                "num_periods": 12,
+                "recurrence_period_type": "month",
+                "recurrence_mult": 1,
+                "recurrence_period_start": "2023-10-01",
+            }
+        ]
+
+    def test_returns_variance_data(self):
+        """Test that budget variance returns expected structure."""
+        call_count = [0]
+
+        def mock_query(sql, params):
+            call_count[0] += 1
+            if "budgets b" in sql and "recurrences r" in sql:
+                return self._mock_budget_query()
+            elif "budget_amounts ba" in sql:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_budgeted": "500.00",
+                    }
+                ]
+            else:
+                # actual spending query
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_actual": "450.00",
+                    }
+                ]
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_budget_variance("2024 Budget", period=0)
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            data = parsed["data"]
+            assert data["budget"] == "2024 Budget"
+            assert isinstance(data["items"], list)
+
+    def test_budget_not_found(self):
+        """Test error when budget name doesn't exist."""
+        with patch("server.query", return_value=[]):
+            result = get_budget_variance("Nonexistent")
+            parsed = _parse_response(result)
+            assert not parsed["success"]
+            assert "not found" in parsed["error"].lower()
+
+    def test_invalid_period_int(self):
+        """Test error when period index is out of range."""
+        with patch("server.query", return_value=self._mock_budget_query()):
+            result = get_budget_variance("2024 Budget", period=99)
+            parsed = _parse_response(result)
+            assert not parsed["success"]
+            assert "Invalid period" in parsed["error"]
+
+    def test_invalid_period_str(self):
+        """Test error when period string is invalid."""
+        with patch("server.query", return_value=self._mock_budget_query()):
+            result = get_budget_variance("2024 Budget", period="invalid")
+            parsed = _parse_response(result)
+            assert not parsed["success"]
+            assert "Invalid period" in parsed["error"]
+
+    def test_period_all(self):
+        """Test period='all' returns all periods."""
+        call_count = [0]
+
+        def mock_query(sql, params):
+            call_count[0] += 1
+            if "budgets b" in sql and "recurrences r" in sql:
+                return self._mock_budget_query()
+            elif "budget_amounts ba" in sql:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_budgeted": "6000.00",
+                    }
+                ]
+            else:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_actual": "5500.00",
+                    }
+                ]
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_budget_variance("2024 Budget", period="all")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            data = parsed["data"]
+            assert len(data["items"]) > 0
+
+    def test_period_ytd(self):
+        """Test period='ytd' returns periods up to today."""
+        call_count = [0]
+
+        def mock_query(sql, params):
+            call_count[0] += 1
+            if "budgets b" in sql and "recurrences r" in sql:
+                return self._mock_budget_query()
+            elif "budget_amounts ba" in sql:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_budgeted": "3000.00",
+                    }
+                ]
+            else:
+                return []
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_budget_variance("2024 Budget", period="ytd")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+
+    def test_over_budget_marker(self):
+        """Test that over-budget items are flagged."""
+        call_count = [0]
+
+        def mock_query(sql, params):
+            call_count[0] += 1
+            if "budgets b" in sql and "recurrences r" in sql:
+                return self._mock_budget_query()
+            elif "budget_amounts ba" in sql:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_budgeted": "500.00",
+                    }
+                ]
+            else:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_actual": "600.00",
+                    }
+                ]
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_budget_variance("2024 Budget", period=0)
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            item = parsed["data"]["items"][0]
+            assert item["over_budget"] is True
+            assert item["percent_used"] > 100
+
+    def test_under_budget(self):
+        """Test under-budget items show positive remaining."""
+        call_count = [0]
+
+        def mock_query(sql, params):
+            call_count[0] += 1
+            if "budgets b" in sql and "recurrences r" in sql:
+                return self._mock_budget_query()
+            elif "budget_amounts ba" in sql:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_budgeted": "500.00",
+                    }
+                ]
+            else:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_actual": "300.00",
+                    }
+                ]
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_budget_variance("2024 Budget", period=0)
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            item = parsed["data"]["items"][0]
+            assert item["over_budget"] is False
+            assert item["remaining"] == "200.00"
+
+    def test_account_filter(self):
+        """Test that account filter limits results."""
+        call_count = [0]
+
+        def mock_query(sql, params):
+            call_count[0] += 1
+            if "budgets b" in sql and "recurrences r" in sql:
+                return self._mock_budget_query()
+            elif "budget_amounts ba" in sql:
+                # Multiple budget accounts
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_budgeted": "500.00",
+                    },
+                    {
+                        "account_guid": "g2",
+                        "account_name": "Dining",
+                        "account_type": "EXPENSE",
+                        "total_budgeted": "200.00",
+                    },
+                ]
+            elif "LIKE" in sql:
+                # Account filter lookup - matches only one
+                return [{"guid": "g1"}]
+            else:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_actual": "400.00",
+                    },
+                ]
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_budget_variance("2024 Budget", period=0, account="Groceries")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            # Should only return Groceries (matched by filter)
+            names = [item["account"] for item in parsed["data"]["items"]]
+            assert "Groceries" in names
+            assert "Dining" not in names
+
+    def test_no_budget_only_actuals(self):
+        """Test accounts with actual spending but no budget entry."""
+        call_count = [0]
+
+        def mock_query(sql, params):
+            call_count[0] += 1
+            if "budgets b" in sql and "recurrences r" in sql:
+                return self._mock_budget_query()
+            elif "budget_amounts ba" in sql:
+                return []  # No budget entries
+            else:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Entertainment",
+                        "account_type": "EXPENSE",
+                        "total_actual": "50.00",
+                    }
+                ]
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_budget_variance("2024 Budget", period=0)
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            item = parsed["data"]["items"][0]
+            assert item["account"] == "Entertainment"
+            assert item["budgeted"] == "0"
+            assert item["percent_used"] is None
+
+    def test_yearly_budget_type(self):
+        """Test with yearly budget type."""
+        call_count = [0]
+
+        def mock_query(sql, params):
+            call_count[0] += 1
+            if "budgets b" in sql and "recurrences r" in sql:
+                return [
+                    {
+                        "guid": "0091542c404443b2abb39ebffddc21a1",
+                        "name": "Yearly budget",
+                        "num_periods": 12,
+                        "recurrence_period_type": "year",
+                        "recurrence_mult": 1,
+                        "recurrence_period_start": "2023-01-01",
+                    }
+                ]
+            elif "budget_amounts ba" in sql:
+                return [
+                    {
+                        "account_guid": "g1",
+                        "account_name": "Groceries",
+                        "account_type": "EXPENSE",
+                        "total_budgeted": "6000.00",
+                    }
+                ]
+            else:
+                return []
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_budget_variance("Yearly budget", period=1)
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            data = parsed["data"]
+            assert data["budget"] == "Yearly budget"
+
+    def test_no_active_period(self):
+        """Test when no current period is active (budget periods in the past/future)."""
+
+        # Mock a budget that started in 2020 and ended in 2021
+        def mock_query(sql, params):
+            if "budgets b" in sql and "recurrences r" in sql:
+                return [
+                    {
+                        "guid": "g_budget",
+                        "name": "Old Budget",
+                        "num_periods": 2,
+                        "recurrence_period_type": "year",
+                        "recurrence_mult": 1,
+                        "recurrence_period_start": "2020-01-01",
+                    }
+                ]
+            return []
+
+        with patch("server.query", side_effect=mock_query):
+            result = get_budget_variance("Old Budget")
+            parsed = _parse_response(result)
+            assert not parsed["success"]
+            assert "No active period" in parsed["error"]

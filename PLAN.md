@@ -1,71 +1,121 @@
-# Implementation Plan — GnuCash MCP Tool Additions
+# Implementation Plan — GnuCash MCP Tools
 
-## Overview
+## Current Tool Inventory (10 tools)
 
-Five new tools to improve transaction discovery and date-range querying.
+| # | Tool | Type | Description |
+|---|------|------|-------------|
+| 1 | `get_account_balance` | Read | Balance of one account (+ descendants), optional as_of_date |
+| 2 | `get_spending_by_category` | Read | Expense totals by account, date range |
+| 3 | `get_income_by_category` | Read | Income totals by account, date range |
+| 4 | `get_net_worth` | Read | Assets − Liabilities, optional as_of_date |
+| 5 | `get_recent_transactions` | Read | Last N transactions for an account |
+| 6 | `search_transactions` | Read | Keyword search in descriptions/memos |
+| 7 | `list_accounts` | Read | All non-hidden accounts, optional type filter |
+| 8 | `get_all_transactions_range` | Read | Earliest/latest transaction dates (NEW) |
+| 9 | `get_transaction_count_by_year` | Read | Distinct txn counts per calendar year (NEW) |
 
----
+## Database Schema Summary
 
-## Tool 1: `get_all_transactions_range` (NEW)
-
-**Purpose:** Return the earliest and latest transaction dates across the entire book. One call, done.
-
-**SQL:**
-```sql
-SELECT MIN(tx.post_date) AS earliest,
-       MAX(tx.post_date) AS latest
-FROM transactions tx
-WHERE EXISTS (
-    SELECT 1 FROM splits s WHERE s.tx_guid = tx.guid
-)
-```
-
-**Implementation:** Append to `server.py` after `_date_bounds_inclusive`. Slice `post_date` to `[:10]` for ISO date strings. No parameters.
-
-**Live result:** `earliest: 2020-03-10`, `latest: 2025-03-04` (~5 years). Earlier than expense-only queries suggested because pre-2016 transactions exist in asset/equity accounts (opening balances, transfers) that pure expense/income tools can't surface.
+- **22 tables**: accounts, transactions, splits, budgets, budget_amounts, commodities, prices, schedxactions, recurrences, entries, slots, lots, vendors, customers, employees, books, versions, gnclock, billterms, invoices, orders, taxtable_entries, taxtables
+- **Budget data**: 2 budgets (Yearly + 2024), 12 periods each. Periods map to monthly windows via recurrences table.
+- **Scheduled transactions**: 1 enabled (Mortgage payment). Uses schedxactions + recurrences tables.
+- **Prices table**: Empty — no FX rates on file.
 
 ---
 
-## Tool 2: `get_transaction_count_by_year` (NEW)
+## Completed
 
-**Purpose:** Return transaction counts per calendar year.
+### ✅ Tool 1: `get_all_transactions_range`
+**Status:** DONE — 3 tests, live OK
+**Result:** 2020-03-10 → 2025-03-04 (~5 years)
 
-**SQL:**
-```sql
-SELECT YEAR(tx.post_date) AS year,
-       COUNT(DISTINCT tx.guid) AS txn_count
-FROM transactions tx
-WHERE EXISTS (SELECT 1 FROM splits s WHERE s.tx_guid = tx.guid)
-GROUP BY YEAR(tx.post_date)
-ORDER BY year
-```
+### ✅ Tool 2: `get_transaction_count_by_year`
+**Status:** DONE — 4 tests, live OK
+**Result:** 6 years (2020–2025), massive 2023 spike (547 txns)
 
-**Implementation:** Append to `server.py`. Convert year to int for cleaner JSON. No parameters.
+### ✅ Tools 3a-b: Date-filtered transaction tools
+**Status:** DONE — 6 new tests, live OK
+- `get_recent_transactions`: added `start_date`, `end_date`, `order_direction`
+- `search_transactions`: same params added
 
-**Live result:** 2020–2025, with a massive spike in 2023 (547 txns vs ~25/year otherwise). Likely a bulk import or migration event.
-
----
-
-## Tool 3: Date-filtered `get_recent_transactions` and `search_transactions`
-
-Both tools lack date filtering. Add optional `start_date`, `end_date` params using `_date_bounds_inclusive`. Default to full range when omitted. Also add optional `order_direction` param (`ASC`/`DESC`).
-
-### 3a. Modified `get_recent_transactions`
-- Signature: add `start_date`, `end_date`, `order_direction` (default `"DESC"`)
-- SQL: conditional `AND tx.post_date >= %s AND tx.post_date < %s` clause
-- Order: use dynamic `ORDER BY tx.post_date {direction}`
-
-### 3b. Modified `search_transactions`
-- Signature: same params as above
-- SQL: same conditional date clause inserted before the LIMIT
+### ✅ Tool 4: Account type filter on `list_accounts`
+**Status:** DONE — 3 new tests, live OK
 
 ---
 
-## Tool 4: `list_accounts` with optional `account_type` filter
+## Planned Features (ranked by insight gain)
 
-- Signature: add `account_type: str | None = None`
-- Validation: reject invalid types, list valid ones in error message
-- SQL: conditional `AND a.account_type = %s` clause
+### 🔥 Priority 1: Budget variance report (`get_budget_variance`)
+**Insight gain:** HIGH — turns raw spending into actionable feedback. Compares actuals vs planned amounts with ⚠ markers for over-budget categories.
+
+**Design:**
+- `budget_name`: which budget to use (required)
+- `period`: which period(s) to report — None (current), int 0–11, "q1"–"q4", "ytd", or "all" (default: current period)
+- `account`: optional filter to one account or parent
+- Returns per-account breakdown: budgeted, actual, remaining, percent_used
+
+**SQL approach:**
+1. Resolve budget → recurrences table for period date bounds
+2. Sum budget_amounts for selected periods per account
+3. Sum spending_by_category (EXPENSE splits) within same date range
+4. Compute variance = budgeted − actual, percent_used = actual/budgeted × 100
+5. Compact text table with ⚠ marker at >110%
+
+**Edge cases:**
+- Budgets may have incomplete periods (not all accounts in all periods) → only show accounts that have a budget for the selected period(s)
+- No FX rates on file → no multi-currency concern currently
+- Accounts can appear multiple times per period (TM has 2 entries) → SUM them
+
+**Live data:** 2024 Budget has ~18 expense accounts across 12 periods. Yearly Budget has 4 accounts (Property, Repair/Maintenance, Auto Insurance, Home Insurance).
+
+---
+
+### 🔥 Priority 2: Upcoming scheduled transactions (`get_upcoming_transactions`)
+**Insight gain:** HIGH — "what bills are coming up?" query for cash flow planning.
+
+**Design:**
+- `days`: look-ahead window (default 14)
+- `verbose`: compact text vs JSON (default compact)
+- Resolves schedxactions + recurrences tables
+- Computes next occurrence date from last_occur + recurrence rules
+- Shows: schedule name, next date, amount(s), accounts involved
+
+**SQL approach:**
+1. Query schedxactions WHERE enabled = 1
+2. Join recurrences for frequency info
+3. Calculate next occurrence: last_occur + N × recurrence_mult × period
+4. Filter to within `days` window or overdue (past due but not yet entered)
+
+---
+
+### 🔥 Priority 3: Income statement (`get_income_statement`)
+**Insight gain:** MEDIUM — consolidated view of revenue minus expenses over a period.
+
+**Design:**
+- `start_date`, `end_date`: inclusive range (required)
+- Returns: total income, total expenses, net (income − expenses)
+- Breakdown by category for both sides
+
+**SQL approach:** Combine get_spending_by_category and get_income_by_category into one call with subtotals.
+
+---
+
+### 🔥 Priority 4: Balance sheet (`get_balance_sheet`)
+**Insight gain:** MEDIUM — snapshot of net worth with per-account detail.
+
+**Design:**
+- `as_of_date`: optional (default today)
+- Returns: assets, liabilities, equity, net_worth
+- Per-account breakdown sorted by type then name
+
+---
+
+### 🔥 Priority 5: Monthly spending trend (`get_monthly_spending_trend`)
+**Insight gain:** MEDIUM — time-series of total monthly spending.
+
+**Design:**
+- `months`: number of months to look back (default 12)
+- Returns: array of {month, total_spent} ordered newest first
 
 ---
 
@@ -73,18 +123,15 @@ Both tools lack date filtering. Add optional `start_date`, `end_date` params usi
 
 1. ~~Tool 1: `get_all_transactions_range`~~ — **DONE** (3 tests, live OK)
 2. ~~Tool 2: `get_transaction_count_by_year`~~ — **DONE** (4 tests, live OK)
-3. ~~Tool 3a-b: Date-filtered transaction tools~~ — **DONE** (6 new tests, live OK)
-   - `get_recent_transactions`: added `start_date`, `end_date`, `order_direction`
-   - `search_transactions`: same params added
+3. ~~Tools 3a-b: Date-filtered transaction tools~~ — **DONE** (6 new tests, live OK)
 4. ~~Tool 4: Account type filter on `list_accounts`~~ — **DONE** (3 new tests, live OK)
+5. **Tool 5: `get_budget_variance`** — 🔥 NEXT (highest insight gain)
+6. Tool 6: `get_upcoming_transactions`
+7. Tool 7: `get_income_statement`
+8. Tool 8: `get_balance_sheet`
+9. Tool 9: `get_monthly_spending_trend`
 
-## Summary of All Changes
-
-| File | Changes |
-|------|---------|
-| `server.py` | +2 new tools, modified 3 existing tools with new optional params |
-| `tests/test_server.py` | +10 new tests (61→71 server tests), all 118 total pass |
-| `smoke_test.py` | Added calls to both new tools |
+---
 
 ## Live Results
 
@@ -97,8 +144,11 @@ Both tools lack date filtering. Add optional `start_date`, `end_date` params usi
 | `get_recent_transactions("Checking", start_date=..., end_date=...)` | Date-filtered, respects order_direction |
 | `search_transactions("transfer", start_date=..., end_date=...)` | 2 matches in H1 2024 |
 
+---
+
 ## Testing Strategy
 
 - Each new tool tested via smoke_test.py or direct import
 - Modified tools tested for backward compatibility (call without new params)
 - Unit tests in `tests/test_server.py` updated
+- All 118 tests pass before each commit

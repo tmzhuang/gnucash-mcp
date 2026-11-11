@@ -5,6 +5,7 @@ as finance tools.
 Run:  python server.py            # stdio transport
 """
 
+import calendar
 import datetime
 import json
 from decimal import Decimal
@@ -595,6 +596,292 @@ def get_income_by_category(start_date: str, end_date: str) -> str:
             "end": end_date,
             "income_earned": rows,
             "note": "In GnuCash, income is stored as negative numbers. This tool returns positive absolute values for readability.",
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Budget variance tool
+# ---------------------------------------------------------------------------
+
+
+def _budget_period_bounds(period_start, period_type, mult, num_periods):
+    """Compute [(start, end)] for every period of a budget.
+
+    Mirrors GnuCash's recurrence pacing (month/year with day-clamping).
+    """
+    if isinstance(period_start, str):
+        ps = datetime.date.fromisoformat(period_start)
+    else:
+        ps = period_start
+
+    bounds = []
+    for p in range(num_periods):
+        offset = p * mult
+        if period_type == "year":
+            start = datetime.date(ps.year + offset, ps.month, ps.day)
+            nxt = datetime.date(ps.year + (offset + 1), ps.month, ps.day)
+        elif period_type == "month":
+            m = ps.month - 1 + offset
+            sy, sm = ps.year + m // 12, m % 12 + 1
+            try:
+                start = datetime.date(sy, sm, ps.day)
+            except ValueError:
+                last_day = calendar.monthrange(sy, sm)[1]
+                start = datetime.date(sy, sm, min(ps.day, last_day))
+
+            m2 = ps.month - 1 + (offset + 1)
+            ey, em = ps.year + m2 // 12, m2 % 12 + 1
+            try:
+                nxt = datetime.date(ey, em, ps.day)
+            except ValueError:
+                last_day = calendar.monthrange(ey, em)[1]
+                nxt = datetime.date(ey, em, min(ps.day, last_day))
+        else:
+            # Fallback: skip unknown period types
+            continue
+
+        bounds.append(
+            (
+                start.strftime("%Y-%m-%d"),
+                (nxt - datetime.timedelta(days=1)).strftime("%Y-%m-%d"),
+            )
+        )
+    return bounds
+
+
+@mcp.tool()
+def get_budget_variance(
+    budget_name: str,
+    period: str | int | None = None,
+    account: str | None = None,
+) -> str:
+    """Return budget vs actual spending for a given budget.
+
+    Args:
+        budget_name: Name of the budget to evaluate (e.g. '2024 Budget').
+        period: Which period(s) to report — ``None`` (current), int 0-11,
+                'q1'-'q4', 'ytd', or 'all' (default: current period).
+        account: Optional filter to one account name substring.
+
+    Returns:
+        A JSON-encoded string with per-account breakdown: budgeted, actual,
+        remaining, percent_used. Over-budget categories are marked with a ⚠.
+    """
+    # 1. Resolve budget name → recurrence info
+    rows = query(
+        """
+        SELECT b.guid, b.name, b.num_periods,
+               r.recurrence_period_type, r.recurrence_mult,
+               r.recurrence_period_start
+        FROM budgets b
+        JOIN recurrences r ON r.obj_guid = b.guid
+        WHERE b.name = %s
+    """,
+        (budget_name,),
+    )
+    if not rows:
+        return _err(f"Budget {budget_name!r} not found")
+    budget = rows[0]
+
+    # 2. Compute all period bounds
+    all_bounds = _budget_period_bounds(
+        budget["recurrence_period_start"],
+        budget["recurrence_period_type"],
+        budget["recurrence_mult"],
+        budget["num_periods"],
+    )
+
+    # 3. Select which periods to report
+    if period is None:
+        # Current period: find the period whose start <= today < end
+        today = datetime.date.today()
+        current_idx = None
+        for i, (ps, pe) in enumerate(all_bounds):
+            if ps <= today.strftime("%Y-%m-%d") <= pe:
+                current_idx = i
+                break
+        if current_idx is None:
+            return _err(
+                f"No active period found for budget {budget_name!r}. "
+                f"Periods span {all_bounds[0][0]} to {all_bounds[-1][1]}. "
+                f"Try specifying a period explicitly."
+            )
+        selected_periods = [current_idx]
+    elif isinstance(period, int):
+        if 0 <= period < len(all_bounds):
+            selected_periods = [period]
+        else:
+            return _err(
+                f"Invalid period {period}. Budget has {len(all_bounds)} periods (0-{len(all_bounds)-1})."
+            )
+    elif isinstance(period, str):
+        p_upper = period.upper()
+        if p_upper == "ALL":
+            selected_periods = list(range(len(all_bounds)))
+        elif p_upper == "YTD":
+            today_str = datetime.date.today().strftime("%Y-%m-%d")
+            # Include all periods whose start <= today
+            selected_periods = [
+                i for i, (ps, pe) in enumerate(all_bounds) if ps <= today_str
+            ]
+        elif p_upper in ("Q1", "Q2", "Q3", "Q4"):
+            q_map = {
+                "Q1": range(0, 3),
+                "Q2": range(3, 6),
+                "Q3": range(6, 9),
+                "Q4": range(9, 12),
+            }
+            selected_periods = [i for i in q_map[p_upper] if i < len(all_bounds)]
+        else:
+            return _err(
+                f"Invalid period {period!r}. Use int (0-{len(all_bounds)-1}), "
+                f"'all', 'ytd', or 'q1'-'q4'."
+            )
+    else:
+        return _err(f"Invalid period type: {type(period).__name__}")
+
+    # 4. Compute combined date range for actuals lookup
+    all_dates = []
+    for idx in selected_periods:
+        ps, pe = all_bounds[idx]
+        all_dates.append((ps, pe))
+
+    if not all_dates:
+        return _err("No periods selected")
+
+    # 5. Get budget amounts per account for selected periods
+    date_params = []
+    for ps, pe in all_dates:
+        date_params.extend([ps, pe])
+
+    budget_sql = f"""
+        SELECT ba.account_guid, a.name AS account_name, a.account_type,
+               SUM(ba.amount_num / NULLIF(ba.amount_denom, 0)) AS total_budgeted
+        FROM budget_amounts ba
+        JOIN accounts a ON a.guid = ba.account_guid
+        WHERE ba.budget_guid = %s
+          AND (ba.period_num IN ({', '.join(str(i) for i in selected_periods)}))
+        GROUP BY ba.account_guid, a.name, a.account_type
+    """
+
+    budget_rows = query(budget_sql, (budget["guid"],))
+    budget_by_account = {r["account_guid"]: r for r in budget_rows}
+
+    # 6. Get actual spending per account within the date range
+    if all_dates:
+        # Build OR conditions for each period's date range
+        or_clauses = " OR ".join(
+            ["(tx.post_date >= %s AND tx.post_date < %s)" for _, _ in all_dates]
+        )
+        actual_params = []
+        for ps, pe in all_dates:
+            actual_params.extend([ps + " 00:00:00", pe + " 23:59:59"])
+
+        # Resolve matching account GUIDs (for both budget and actual filtering)
+        matched_guids = []
+        if account is not None:
+            acct_rows = query(
+                """
+                SELECT a.guid FROM accounts a
+                WHERE a.hidden = 0 AND a.name LIKE %s
+            """,
+                (f"%{account}%",),
+            )
+            matched_guids = [r["guid"] for r in acct_rows]
+
+        # Filter budget rows by matched accounts if specified
+        if matched_guids:
+            guid_set = set(matched_guids)
+            budget_by_account = {
+                k: v for k, v in budget_by_account.items() if k in guid_set
+            }
+
+        # Filter actual spending query by matched accounts
+        account_filter_sql = ""
+        if matched_guids:
+            acc_guids = ", ".join(["%s"] * len(matched_guids))
+            account_filter_sql = f" AND s.account_guid IN ({acc_guids})"
+            actual_params.extend(matched_guids)
+
+        actual_sql = f"""
+            SELECT s.account_guid, a.name AS account_name, a.account_type,
+                   SUM({AMOUNT_EXPR}) AS total_actual
+            FROM splits s
+            JOIN transactions tx ON tx.guid = s.tx_guid
+            JOIN accounts a ON a.guid = s.account_guid
+            WHERE a.account_type = 'EXPENSE'
+              AND a.hidden = 0
+              AND ({or_clauses})
+              {account_filter_sql}
+            GROUP BY s.account_guid, a.name, a.account_type
+            HAVING total_actual <> 0
+        """
+
+        actual_rows = query(actual_sql, tuple(actual_params))
+    else:
+        actual_rows = []
+
+    # Build name lookups from both budget and actual rows
+    account_names = {}
+    for r in budget_rows:
+        account_names[r["account_guid"]] = r["account_name"]
+    for r in actual_rows:
+        if r["account_guid"] not in account_names:
+            account_names[r["account_guid"]] = r["account_name"]
+
+    actual_by_account = {}
+    for r in actual_rows:
+        guid = r["account_guid"]
+        if guid not in actual_by_account:
+            actual_by_account[guid] = Decimal("0")
+        actual_by_account[guid] += Decimal(str(r["total_actual"]))
+
+    # 7. Combine and format results
+    all_guids = set(budget_by_account.keys()) | set(actual_by_account.keys())
+    results = []
+    for guid in sorted(all_guids):
+        b = budget_by_account.get(guid, {})
+        a = actual_by_account.get(guid, Decimal("0"))
+        budgeted = Decimal(str(b.get("total_budgeted", 0)))
+        name = account_names.get(guid, "Unknown")
+
+        remaining = budgeted - a
+        if budgeted != 0:
+            pct_used = float(a / budgeted * 100)
+        else:
+            pct_used = 0.0 if a == 0 else None
+
+        entry = {
+            "account": name,
+            "budgeted": str(budgeted),
+            "actual": str(a),
+            "remaining": str(remaining),
+            "percent_used": round(pct_used, 1) if pct_used is not None else None,
+            "over_budget": pct_used is not None and pct_used > 100,
+        }
+        results.append(entry)
+
+    # Format period description
+    if len(selected_periods) == 1:
+        idx = selected_periods[0]
+        ps, pe = all_bounds[idx]
+        s = datetime.date.fromisoformat(ps)
+        e = datetime.date.fromisoformat(pe)
+        period_desc = f"{s.strftime('%b %d')} - {e.strftime('%b %d, %Y')}"
+    else:
+        first_ps, last_pe = (
+            all_bounds[selected_periods[0]][0],
+            all_bounds[selected_periods[-1]][1],
+        )
+        s = datetime.date.fromisoformat(first_ps)
+        e = datetime.date.fromisoformat(last_pe)
+        period_desc = f"{s.strftime('%b %d')} - {e.strftime('%b %d, %Y')}"
+    return _ok(
+        {
+            "budget": budget["name"],
+            "period": period_desc,
+            "items": results,
         }
     )
 
