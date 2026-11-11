@@ -53,11 +53,12 @@
 - Uses recursive CTE to build paths from Expenses ROOT account
 - Backward compatible: default behavior unchanged (leaf name only)
 
-### 💡 2: Transaction count by date range + type filter
-**Motivation:** Asked for "expense transaction counts by month in 2023" — had to run raw SQL. `get_transaction_count_by_year` only does calendar years.
+### 💡 2: ✅ `get_transaction_count_by_year` — date range + account_type filter
+**Status:** DONE — 4 new tests, live OK (EXPENSE-only 2023 = 332 txns; Sep–Dec 2023 = 291)
 **Design:**
-- Add optional `account_type` param to `get_transaction_count_by_year` (or a new `get_transaction_counts(start_date, end_date, account_type?)`)
-- Returns per-period counts with half-open date bounds
+- Add `account_type: str | None` — filter by type (validated against whitelist)
+- Add `start_date`, `end_date` — narrow the date range
+- Backward compatible: no params = original all-years behavior
 
 ### 💡 3: `list_accounts` returning full paths
 **Motivation:** Hierarchical path (`Expenses:Auto:Fuel`) requires recursive CTE logic. Current tool returns flat names with pagination.

@@ -983,6 +983,46 @@ class TestGetTransactionCountByYear:
             # SQL ORDER BY year ensures oldest-first ordering
             assert [y["year"] for y in parsed["data"]["years"]] == [2020, 2023, 2025]
 
+    def test_account_type_filter(self):
+        mock_result = [
+            {"year": 2024, "txn_count": 120},
+        ]
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
+            result = get_transaction_count_by_year(account_type="EXPENSE")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["years"][0]["txn_count"] == 120
+
+    def test_invalid_account_type(self):
+        result = get_transaction_count_by_year(account_type="FAKE")
+        parsed = _parse_response(result)
+        assert not parsed["success"]
+        assert "Invalid account_type" in parsed["error"]
+
+    def test_date_range_filter(self):
+        mock_result = [
+            {"year": 2023, "txn_count": 88},
+            {"year": 2024, "txn_count": 76},
+        ]
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
+            result = get_transaction_count_by_year(
+                start_date="2023-01-01", end_date="2024-12-31"
+            )
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert len(parsed["data"]["years"]) == 2
+
+    def test_backward_compatible_defaults(self):
+        """Calling without new params should still work."""
+        mock_result = [
+            {"year": 2024, "txn_count": 150},
+        ]
+        with patch("gnucash_mcp.server.query", return_value=mock_result):
+            result = get_transaction_count_by_year()
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["years"][0]["txn_count"] == 150
+
 
 class TestErrorHandling:
     """Test error handling in server functions."""

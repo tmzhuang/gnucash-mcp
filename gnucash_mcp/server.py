@@ -144,23 +144,65 @@ def get_all_transactions_range() -> str:
 
 
 @mcp.tool()
-def get_transaction_count_by_year() -> str:
+def get_transaction_count_by_year(
+    account_type: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str:
     """Return the number of distinct transactions per calendar year.
+
+    Args:
+        account_type: Optional account type filter (e.g. "EXPENSE", "INCOME").
+            Valid types: ASSET, EQUITY, EXPENSE, INCOME, LIABILITY.
+        start_date: Optional ISO 'YYYY-MM-DD' to narrow the range.
+        end_date:   Optional ISO 'YYYY-MM-DD' to narrow the range.
 
     Returns:
         A JSON-encoded string with {years: [{year, txn_count}, ...]}.
         Only years with at least one transaction are included, ordered oldest first.
     """
-    rows = query("""
+    if account_type is not None:
+        upper = account_type.upper()
+        if upper not in VALID_ACCOUNT_TYPES:
+            return _err(
+                f"Invalid account_type {account_type!r}. "
+                f"Must be one of: {', '.join(sorted(VALID_ACCOUNT_TYPES))}"
+            )
+
+    where_clauses = [
+        "EXISTS (SELECT 1 FROM splits s WHERE s.tx_guid = tx.guid)",
+    ]
+    params: list = []
+
+    if account_type is not None:
+        where_clauses.append("a.account_type = %s")
+        params.append(upper)
+
+    if start_date is not None or end_date is not None:
+        try:
+            lo, hi = _date_bounds_inclusive(
+                start_date or "1900-01-01", end_date or "2999-12-31"
+            )
+        except ValueError as e:
+            return _err(str(e))
+        where_clauses.append("tx.post_date >= %s AND tx.post_date < %s")
+        params.extend([lo, hi])
+
+    where_sql = " AND ".join(where_clauses)
+
+    rows = query(
+        f"""
         SELECT YEAR(tx.post_date) AS year,
                COUNT(DISTINCT tx.guid) AS txn_count
         FROM transactions tx
-        WHERE EXISTS (
-            SELECT 1 FROM splits s WHERE s.tx_guid = tx.guid
-        )
+        JOIN splits s ON s.tx_guid = tx.guid
+        JOIN accounts a ON a.guid = s.account_guid
+        WHERE {where_sql}
         GROUP BY YEAR(tx.post_date)
         ORDER BY year
-    """)
+        """,
+        params,
+    )
     result = [{"year": int(r["year"]), "txn_count": int(r["txn_count"])} for r in rows]
     return _ok({"years": result})
 
