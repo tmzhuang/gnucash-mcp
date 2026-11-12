@@ -216,12 +216,15 @@ VALID_ACCOUNT_TYPES = frozenset({"ASSET", "LIABILITY", "EQUITY", "INCOME", "EXPE
 
 
 @mcp.tool()
-def list_accounts(account_type: str | None = None) -> str:
+def list_accounts(account_type: str | None = None, full_path: bool = False) -> str:
     """List every non-hidden account in the GnuCash book, optionally filtered by type.
 
     Args:
         account_type: Filter to a single account type (ASSET, LIABILITY, EQUITY,
                       INCOME, EXPENSE). Omit for all types.
+        full_path: If True, include a `path` field with the full colon-separated
+                   hierarchy from ROOT (e.g. 'Root Account:Assets:Current:Cash').
+                   Default is False (flat names only).
 
     Returns:
         A JSON-encoded string. On success, the payload is:
@@ -229,6 +232,8 @@ def list_accounts(account_type: str | None = None) -> str:
         The array has the form {guid, name, account_type, parent_guid,
         commodity_guid, commodity_mnemonic}. `account_type` is one of
         ASSET/LIABILITY/EQUITY/INCOME/EXPENSE.
+
+        When full_path=True, each row also includes a `path` string.
 
         Account names are not guaranteed unique; the guid is authoritative.
     """
@@ -239,14 +244,78 @@ def list_accounts(account_type: str | None = None) -> str:
                 f"Invalid account_type {account_type!r}. "
                 f"Must be one of: {', '.join(sorted(VALID_ACCOUNT_TYPES))}"
             )
+
+    base_select = """
+        SELECT a.guid,
+               a.name,
+               a.account_type,
+               a.parent_guid,
+               a.commodity_guid,
+               c.mnemonic AS commodity_mnemonic
+    """
+
+    full_path_select = """
+        SELECT a.guid,
+               a.name,
+               a.account_type,
+               a.parent_guid,
+               a.commodity_guid,
+               c.mnemonic AS commodity_mnemonic,
+               t.path AS path
+    """
+
+    if full_path and account_type is not None:
+        # Recursive CTE builds path from ROOT ancestors, with type filter.
         rows = query(
+            f"""
+            WITH RECURSIVE tree AS (
+                SELECT a.guid, a.name, a.account_type, a.parent_guid,
+                       CAST(a.name AS CHAR(2000)) AS path
+                FROM accounts a
+                WHERE a.account_type = 'ROOT' AND a.hidden = 0
+                UNION ALL
+                SELECT a.guid, a.name, a.account_type, a.parent_guid,
+                       CONCAT(t.path, ':', a.name)
+                FROM accounts a
+                JOIN tree t ON a.parent_guid = t.guid
+                WHERE a.hidden = 0
+            )
+            {full_path_select}
+            FROM accounts a
+            LEFT JOIN commodities c ON c.guid = a.commodity_guid
+            JOIN tree t ON t.guid = a.guid
+            WHERE a.account_type = %s
+            ORDER BY t.path
+            """,
+            (upper,),
+        )
+    elif full_path:
+        # Recursive CTE builds path from ROOT ancestors, all types.
+        rows = query(
+            f"""
+            WITH RECURSIVE tree AS (
+                SELECT a.guid, a.name, a.account_type, a.parent_guid,
+                       CAST(a.name AS CHAR(2000)) AS path
+                FROM accounts a
+                WHERE a.account_type = 'ROOT' AND a.hidden = 0
+                UNION ALL
+                SELECT a.guid, a.name, a.account_type, a.parent_guid,
+                       CONCAT(t.path, ':', a.name)
+                FROM accounts a
+                JOIN tree t ON a.parent_guid = t.guid
+                WHERE a.hidden = 0
+            )
+            {full_path_select}
+            FROM accounts a
+            LEFT JOIN commodities c ON c.guid = a.commodity_guid
+            JOIN tree t ON t.guid = a.guid
+            ORDER BY t.path
             """
-            SELECT a.guid,
-                   a.name,
-                   a.account_type,
-                   a.parent_guid,
-                   a.commodity_guid,
-                   c.mnemonic AS commodity_mnemonic
+        )
+    elif account_type is not None:
+        rows = query(
+            f"""
+            {base_select}
             FROM accounts a
             LEFT JOIN commodities c ON c.guid = a.commodity_guid
             WHERE a.hidden = 0
@@ -257,13 +326,8 @@ def list_accounts(account_type: str | None = None) -> str:
         )
     else:
         rows = query(
-            """
-            SELECT a.guid,
-                   a.name,
-                   a.account_type,
-                   a.parent_guid,
-                   a.commodity_guid,
-                   c.mnemonic AS commodity_mnemonic
+            f"""
+            {base_select}
             FROM accounts a
             LEFT JOIN commodities c ON c.guid = a.commodity_guid
             WHERE a.hidden = 0

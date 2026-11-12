@@ -322,6 +322,53 @@ class TestListAccounts:
         assert "Invalid account_type" in parsed["error"]
         assert "ASSET" in parsed["error"]
 
+    def test_full_path_with_account_type(self):
+        mock_result = [
+            {
+                "guid": "g1",
+                "name": "Cash",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "commodity_guid": "c1",
+                "commodity_mnemonic": "USD",
+                "path": "Root Account:Assets:Current:Cash",
+            },
+        ]
+
+        def mock_query(sql, params):
+            assert params == ("ASSET",)
+            return mock_result
+
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
+            result = list_accounts(account_type="ASSET", full_path=True)
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert len(parsed["data"]) == 1
+            assert parsed["data"][0]["path"] == "Root Account:Assets:Current:Cash"
+
+    def test_full_path_without_account_type(self):
+        mock_result = [
+            {
+                "guid": "g1",
+                "name": "Cash",
+                "account_type": "ASSET",
+                "parent_guid": None,
+                "commodity_guid": "c1",
+                "commodity_mnemonic": "USD",
+                "path": "Root Account:Assets:Current:Cash",
+            },
+        ]
+
+        def mock_query(sql, params=None):
+            assert params is None or len(params) == 0
+            return mock_result
+
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
+            result = list_accounts(full_path=True)
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert "path" in parsed["data"][0]
+
 
 class TestGetAccountBalance:
     """Test get_account_balance tool."""
