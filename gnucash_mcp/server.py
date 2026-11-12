@@ -414,6 +414,109 @@ def get_account_balance(
 
 
 @mcp.tool()
+def get_transactions(
+    start_date: str,
+    end_date: str,
+    account_name: str | None = None,
+    account_type: str | None = None,
+    limit: int = 200,
+    order_direction: str = "DESC",
+) -> str:
+    """Return line-item transactions for an inclusive date range.
+
+    Args:
+        start_date: ISO 'YYYY-MM-DD' (inclusive).
+        end_date:   ISO 'YYYY-MM-DD' (inclusive).
+        account_name: Optional substring or path to filter by account.
+            If omitted, returns all accounts.
+        account_type: Optional type filter (ASSET, LIABILITY, EQUITY,
+                      INCOME, EXPENSE). Ignored if account_name is given.
+        limit: Max rows to return (clamped to 1..1000). Default 200.
+        order_direction: 'DESC' (default, newest first) or 'ASC'.
+
+    Each row is one split, so a single transaction appears once per account
+    it touches: {post_date, description, memo, account, account_type, amount}.
+    `amount` is the signed amount on this account's side of the split.
+
+    Returns:
+        A JSON-encoded string. On success:
+        ``{"ok": true, "data": {"start_date": "...", "end_date": "...",
+        "total_splits": N, "transactions": [...]}}``
+    """
+    limit = max(1, min(int(limit), 1000))
+
+    try:
+        lo, hi = _date_bounds_inclusive(start_date, end_date)
+    except ValueError as e:
+        return _err(str(e))
+
+    where_clauses = ["tx.post_date >= %s", "tx.post_date < %s"]
+    params: list = [lo, hi]
+
+    if account_name is not None:
+        acct = _resolve_account(account_name)
+        if acct[1] is not None:
+            return acct[1]
+        where_clauses.append("s.account_guid = %s")
+        params.append(acct[0]["guid"])
+    elif account_type is not None:
+        upper = account_type.upper()
+        if upper not in VALID_ACCOUNT_TYPES:
+            return _err(
+                f"Invalid account_type {account_type!r}. "
+                f"Must be one of: {', '.join(sorted(VALID_ACCOUNT_TYPES))}"
+            )
+        where_clauses.append("a.account_type = %s")
+        params.append(upper)
+
+    order_dir = "ASC" if order_direction.upper() == "ASC" else "DESC"
+
+    rows = query(
+        f"""
+        SELECT tx.post_date,
+               tx.guid AS transaction_guid,
+               tx.description,
+               s.memo,
+               a.name AS account,
+               a.account_type,
+               {AMOUNT_EXPR} AS amount
+        FROM splits s
+        JOIN transactions tx ON tx.guid = s.tx_guid
+        JOIN accounts a ON a.guid = s.account_guid
+        WHERE a.hidden = 0
+          AND {' AND '.join(where_clauses)}
+        ORDER BY tx.post_date {order_dir}, tx.guid {order_dir}
+        LIMIT %s
+        """,
+        (*params, limit),
+    )
+
+    # Count total splits matching (without limit) for metadata.
+    count_rows = query(
+        f"""
+        SELECT COUNT(*) AS cnt
+        FROM splits s
+        JOIN transactions tx ON tx.guid = s.tx_guid
+        JOIN accounts a ON a.guid = s.account_guid
+        WHERE a.hidden = 0
+          AND {' AND '.join(where_clauses)}
+        """,
+        params,
+    )
+    total_splits = count_rows[0]["cnt"] if count_rows else 0
+
+    return _ok(
+        {
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_splits": total_splits,
+            "returned": len(rows),
+            "transactions": rows,
+        }
+    )
+
+
+@mcp.tool()
 def get_recent_transactions(
     account_name: str,
     limit: int = 20,

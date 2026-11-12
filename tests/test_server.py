@@ -20,6 +20,7 @@ from gnucash_mcp.server import (
     get_recent_transactions,
     get_spending_by_category,
     get_transaction_count_by_year,
+    get_transactions,
     list_accounts,
     search_transactions,
 )
@@ -517,6 +518,182 @@ class TestGetAccountBalance:
             assert "2 accounts match" in parsed["error"]
             # Should have made exactly 1 call (the account resolution query)
             # and the error should be returned without attempting the balance query
+
+
+class TestGetTransactions:
+    """Test get_transactions tool."""
+
+    def test_success_basic(self):
+        mock_result = [
+            {
+                "post_date": "2023-07-15 00:00:00",
+                "transaction_guid": "tx1",
+                "description": "Grocery shopping",
+                "memo": None,
+                "account": "Expenses:Food",
+                "account_type": "EXPENSE",
+                "amount": "-52.30",
+            },
+            {
+                "post_date": "2023-07-15 00:00:00",
+                "transaction_guid": "tx1",
+                "description": "Grocery shopping",
+                "memo": None,
+                "account": "Assets:Current:Cash",
+                "account_type": "ASSET",
+                "amount": "52.30",
+            },
+        ]
+
+        def mock_query(sql, params):
+            # Last param is limit for the data query; count query has no limit
+            if isinstance(params[-1], int) and params[-1] <= 1000:
+                return mock_result
+            return [{"cnt": len(mock_result)}]
+
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
+            result = get_transactions(start_date="2023-07-01", end_date="2023-07-31")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["total_splits"] == 2
+            assert parsed["data"]["returned"] == 2
+            assert len(parsed["data"]["transactions"]) == 2
+            assert (
+                parsed["data"]["transactions"][0]["description"] == "Grocery shopping"
+            )
+
+    def test_filter_by_account_name(self):
+        txn_result = [
+            {
+                "post_date": "2023-08-01 00:00:00",
+                "transaction_guid": "tx2",
+                "description": "Salary deposit",
+                "memo": None,
+                "account": "Income:Employment",
+                "account_type": "INCOME",
+                "amount": "3200.00",
+            },
+        ]
+
+        def mock_query(sql, params):
+            if "COUNT(*)" in sql:
+                return [{"cnt": len(txn_result)}]
+            # _resolve_account returns (guid, name, account_type, parent_guid, path)
+            if "WHERE" in sql and "path" in sql:
+                return [
+                    {
+                        "guid": "acct1",
+                        "name": "Income:Employment",
+                        "account_type": "INCOME",
+                        "parent_guid": None,
+                        "path": "Root Account:Income:Employment",
+                    },
+                ]
+            return txn_result
+
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
+            result = get_transactions(
+                start_date="2023-08-01",
+                end_date="2023-08-31",
+                account_name="Employment",
+            )
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert len(parsed["data"]["transactions"]) == 1
+
+    def test_filter_by_account_type(self):
+        mock_result = [
+            {
+                "post_date": "2023-09-10 00:00:00",
+                "transaction_guid": "tx3",
+                "description": "Electric bill",
+                "memo": None,
+                "account": "Expenses:Utilities",
+                "account_type": "EXPENSE",
+                "amount": "-125.00",
+            },
+        ]
+
+        def mock_query(sql, params):
+            if "COUNT(*)" in sql:
+                return [{"cnt": len(mock_result)}]
+            return mock_result
+
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
+            result = get_transactions(
+                start_date="2023-09-01",
+                end_date="2023-09-30",
+                account_type="EXPENSE",
+            )
+            parsed = _parse_response(result)
+            assert parsed["success"]
+
+    def test_invalid_account_type(self):
+        result = get_transactions(
+            start_date="2023-01-01", end_date="2023-01-31", account_type="FAKE"
+        )
+        parsed = _parse_response(result)
+        assert not parsed["success"]
+        assert "Invalid account_type" in parsed["error"]
+
+    def test_invalid_date_range(self):
+        result = get_transactions(start_date="2023-12-31", end_date="2023-01-01")
+        parsed = _parse_response(result)
+        assert not parsed["success"]
+        assert "end_date must be >= start_date" in parsed["error"]
+
+    def test_empty_result(self):
+        with patch("gnucash_mcp.server.query", return_value=[]):
+            result = get_transactions(start_date="2020-01-01", end_date="2020-01-31")
+            parsed = _parse_response(result)
+            assert parsed["success"]
+            assert parsed["data"]["total_splits"] == 0
+            assert parsed["data"]["returned"] == 0
+
+    def test_limit_clamped(self):
+        """Limit > 1000 should be clamped to 1000."""
+        mock_result = []
+
+        def mock_query(sql, params):
+            # Check that limit param is <= 1000
+            if isinstance(params[-1], int):
+                assert params[-1] <= 1000
+            return mock_result
+
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
+            result = get_transactions(
+                start_date="2023-01-01", end_date="2023-01-31", limit=9999
+            )
+            parsed = _parse_response(result)
+            assert parsed["success"]
+
+    def test_order_direction_asc(self):
+        mock_result = [
+            {
+                "post_date": "2023-07-01 00:00:00",
+                "transaction_guid": "tx1",
+                "description": "First",
+                "memo": None,
+                "account": "Expenses:Food",
+                "account_type": "EXPENSE",
+                "amount": "-10.00",
+            },
+        ]
+
+        def mock_query(sql, params):
+            if "COUNT(*)" in sql:
+                return [{"cnt": len(mock_result)}]
+            assert "ASC" in sql
+            return mock_result
+
+        with patch("gnucash_mcp.server.query", side_effect=mock_query):
+            result = get_transactions(
+                start_date="2023-07-01",
+                end_date="2023-07-31",
+                order_direction="ASC",
+            )
+            parsed = _parse_response(result)
+            assert parsed["success"]
 
 
 class TestGetRecentTransactions:
