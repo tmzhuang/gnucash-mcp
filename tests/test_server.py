@@ -22,6 +22,7 @@ from gnucash_mcp.server import (
     get_transaction_count_by_year,
     get_transactions,
     list_accounts,
+    list_gnucash_tools,
     search_transactions,
 )
 
@@ -1117,6 +1118,49 @@ class TestGetIncomeByCategory:
             result = get_income_by_category("2024-01-01", "2024-01-31")
             parsed = _parse_response(result)
             assert parsed["data"]["income_earned"][0]["total"] == "5000.00"
+
+
+class TestListGnucashTools:
+    """Test list_gnucash_tools tool."""
+
+    def test_returns_manifest(self):
+        result = list_gnucash_tools()
+        parsed = _parse_response(result)
+        assert parsed["success"]
+        tools = parsed["data"]
+        # Should have 12 tools (including this one)
+        assert len(tools) >= 10
+        # Each tool should have required fields
+        for t in tools:
+            assert "name" in t
+            assert "description" in t
+            assert "params" in t
+            assert "example" in t
+
+    def test_contains_expected_tools(self):
+        result = list_gnucash_tools()
+        parsed = _parse_response(result)
+        names = {t["name"] for t in parsed["data"]}
+        expected = {
+            "get_all_transactions_range",
+            "get_transaction_count_by_year",
+            "list_accounts",
+            "get_account_balance",
+            "get_recent_transactions",
+            "search_transactions",
+            "get_spending_by_category",
+            "get_income_by_category",
+            "get_net_worth",
+            "get_budget_variance",
+            "get_transactions",
+        }
+        assert expected.issubset(names)
+
+    def test_list_gnucash_tools_in_manifest(self):
+        result = list_gnucash_tools()
+        parsed = _parse_response(result)
+        names = {t["name"] for t in parsed["data"]}
+        assert "list_gnucash_tools" in names
 
 
 class TestGetAllTransactionsRange:

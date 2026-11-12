@@ -118,6 +118,143 @@ def _date_bounds_inclusive(start_iso: str, end_iso: str):
     return lo, hi
 
 
+# Tool discovery manifest — returned by list_gnucash_tools().
+# Agents should call this first to discover available tools.
+TOOL_MANIFEST = [
+    {
+        "name": "list_gnucash_tools",
+        "description": "Return a JSON manifest of all available GnuCash MCP tools with descriptions, parameters, and examples.",
+        "params": {},
+        "example": "list_gnucash_tools()",
+    },
+    {
+        "name": "get_all_transactions_range",
+        "description": "Return the earliest and latest transaction dates across all accounts.",
+        "params": {},
+        "example": "get_all_transactions_range()",
+    },
+    {
+        "name": "get_transaction_count_by_year",
+        "description": "Count transactions per calendar year. Optionally filter by account_type and date range.",
+        "params": {
+            "account_type": "str | None — one of ASSET, LIABILITY, EQUITY, INCOME, EXPENSE",
+            "start_date": "str | None — ISO 'YYYY-MM-DD'",
+            "end_date": "str | None — ISO 'YYYY-MM-DD'",
+        },
+        "example": 'get_transaction_count_by_year(account_type="EXPENSE", start_date="2023-01-01", end_date="2023-12-31")',
+    },
+    {
+        "name": "list_accounts",
+        "description": "List all non-hidden accounts. Supports type filter and full hierarchical paths.",
+        "params": {
+            "account_type": "str | None — one of ASSET, LIABILITY, EQUITY, INCOME, EXPENSE",
+            "full_path": "bool — include colon-separated hierarchy path (e.g. 'Root Account:Assets:Cash')",
+        },
+        "example": 'list_accounts(account_type="EXPENSE", full_path=True)',
+    },
+    {
+        "name": "get_account_balance",
+        "description": "Compute the balance of an account, optionally rolling up descendants.",
+        "params": {
+            "account_name": "str — exact path or leaf-name substring (e.g. 'EQ Bank' or 'Assets:Current:Angie:EQ Bank')",
+            "as_of_date": "str | None — ISO 'YYYY-MM-DD'",
+            "include_children": "bool — roll up descendant balances",
+        },
+        "example": 'get_account_balance("EQ Bank", as_of_date="2023-12-31")',
+    },
+    {
+        "name": "get_recent_transactions",
+        "description": "Return the last N transactions for a specific account, with optional date filtering.",
+        "params": {
+            "account_name": "str — account identifier",
+            "limit": "int — max rows (1..200, default 20)",
+            "start_date": "str | None — ISO 'YYYY-MM-DD'",
+            "end_date": "str | None — ISO 'YYYY-MM-DD'",
+            "order_direction": "'DESC' or 'ASC'",
+        },
+        "example": 'get_recent_transactions("Checking", limit=10, start_date="2023-07-01")',
+    },
+    {
+        "name": "search_transactions",
+        "description": "Search transaction descriptions and split memos by keyword substring.",
+        "params": {
+            "keyword": "str — case-insensitive substring to match",
+            "limit": "int — max rows (1..200, default 20)",
+            "start_date": "str | None — ISO 'YYYY-MM-DD'",
+            "end_date": "str | None — ISO 'YYYY-MM-DD'",
+            "order_direction": "'DESC' or 'ASC'",
+        },
+        "example": 'search_transactions("grocery", start_date="2023-07-01", end_date="2023-07-31")',
+    },
+    {
+        "name": "get_spending_by_category",
+        "description": "Aggregate spending by account over an inclusive date range.",
+        "params": {
+            "start_date": "str — ISO 'YYYY-MM-DD'",
+            "end_date": "str — ISO 'YYYY-MM-DD'",
+            "account_type": 'str | None — default "EXPENSE", validated against whitelist',
+            "include_root": "bool — include Expenses root in path (e.g. 'Expenses:Auto:Fuel')",
+        },
+        "example": 'get_spending_by_category("2023-07-01", "2023-07-31")',
+    },
+    {
+        "name": "get_income_by_category",
+        "description": "Aggregate income by account over an inclusive date range.",
+        "params": {
+            "start_date": "str — ISO 'YYYY-MM-DD'",
+            "end_date": "str — ISO 'YYYY-MM-DD'",
+            "account_type": 'str | None — default "INCOME", validated against whitelist',
+            "include_root": "bool — include Income root in path",
+        },
+        "example": 'get_income_by_category("2023-07-01", "2023-07-31")',
+    },
+    {
+        "name": "get_net_worth",
+        "description": "Calculate total net worth (Total Assets − Total Liabilities).",
+        "params": {
+            "as_of_date": "str | None — ISO 'YYYY-MM-DD'",
+        },
+        "example": 'get_net_worth(as_of_date="2023-12-31")',
+    },
+    {
+        "name": "get_budget_variance",
+        "description": "Compare budgeted vs actual spending for a budget period with over-budget warnings.",
+        "params": {
+            "budget_name": "str — which budget (e.g. '2024 Budget', 'Yearly budget')",
+            "period": 'int | str | None — 0-11, "q1", "q4", "ytd", or "all"',
+            "account": "str | None — filter to one account or parent",
+        },
+        "example": 'get_budget_variance(budget_name="2024 Budget", period="all")',
+    },
+    {
+        "name": "get_transactions",
+        "description": "Return line-item transactions (split-level) for any date range. Optional account/type filter.",
+        "params": {
+            "start_date": "str — ISO 'YYYY-MM-DD'",
+            "end_date": "str — ISO 'YYYY-MM-DD'",
+            "account_name": "str | None — filter by account",
+            "account_type": "str | None — ASSET, LIABILITY, EQUITY, INCOME, EXPENSE",
+            "limit": "int — max rows (1..1000, default 200)",
+            "order_direction": "'DESC' or 'ASC'",
+        },
+        "example": 'get_transactions("2023-07-01", "2023-07-31", account_type="EXPENSE")',
+    },
+]
+
+
+@mcp.tool()
+def list_gnucash_tools() -> str:
+    """Return a JSON manifest of all available GnuCash MCP tools.
+
+    Call this first to discover what tools exist, their parameters, and usage examples.
+    Each entry includes: name, description, params (dict), and example (string).
+
+    Returns:
+        A JSON-encoded string with the full tool manifest.
+    """
+    return _ok(TOOL_MANIFEST)
+
+
 @mcp.tool()
 def get_all_transactions_range() -> str:
     """Return the earliest and latest transaction dates across all accounts.
