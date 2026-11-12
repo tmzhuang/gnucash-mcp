@@ -41,6 +41,9 @@
 ### ✅ Tool 4: Account type filter on `list_accounts`
 **Status:** DONE — 3 new tests, live OK
 
+### ✅ Tool 5: Full path resolution on `list_accounts`
+**Status:** DONE — 2 new tests, live OK (165 accounts with paths)
+
 ---
 
 ## Tool Improvement Ideas (from agent experience)
@@ -60,11 +63,12 @@
 - Add `start_date`, `end_date` — narrow the date range
 - Backward compatible: no params = original all-years behavior
 
-### 💡 3: `list_accounts` returning full paths
-**Motivation:** Hierarchical path (`Expenses:Auto:Fuel`) requires recursive CTE logic. Current tool returns flat names with pagination.
+### 💡 3: ✅ `list_accounts` returning full paths
+**Status:** DONE — 2 new tests, live OK (165 accounts with paths)
 **Design:**
 - Add `full_path: bool = False` — if True, include `path` field built via recursive CTE from ROOT ancestors
-- Or separate `get_account_path(guid)` tool for single-account lookup
+- Works with and without `account_type` filter
+- Path format: `Root Account:Assets:Current:Cash` (colon-separated hierarchy)
 
 ### 💡 4: `get_spending_by_category` accepting `account_type` filter
 **Motivation:** Agent had to manually join and filter for EXPENSE accounts in raw SQL. Existing tool hardcodes "EXPENSE" with no way to switch.
@@ -156,6 +160,7 @@
 2. ~~Tool 2: `get_transaction_count_by_year`~~ — **DONE** (4 tests, live OK)
 3. ~~Tools 3a-b: Date-filtered transaction tools~~ — **DONE** (6 new tests, live OK)
 4. ~~Tool 4: Account type filter on `list_accounts`~~ — **DONE** (3 new tests, live OK)
+5. ~~Tool 5: Full path resolution on `list_accounts`~~ — **DONE** (2 new tests, live OK)
 5. **Tool 5: `get_budget_variance`** — 🔥 NEXT (highest insight gain)
 6. Tool 6: `get_upcoming_transactions`
 7. Tool 7: `get_income_statement`
@@ -172,6 +177,7 @@
 | `get_transaction_count_by_year` | 6 years, 2023 spike (547 txns) |
 | `list_accounts(account_type="EXPENSE")` | 70 expense accounts |
 | `list_accounts(account_type="FAKE")` | Proper error with valid types listed |
+| `list_accounts(full_path=True, account_type="EXPENSE")` | 70 expense accounts with paths (e.g. `Root Account:Expenses:Auto:Fuel`) |
 | `get_recent_transactions("Checking", start_date=..., end_date=...)` | Date-filtered, respects order_direction |
 | `search_transactions("transfer", start_date=..., end_date=...)` | 2 matches in H1 2024 |
 
@@ -182,4 +188,4 @@
 - Each new tool tested via smoke_test.py or direct import
 - Modified tools tested for backward compatibility (call without new params)
 - Unit tests in `tests/test_server.py` updated
-- All 118 tests pass before each commit
+- All 140 tests pass before each commit
